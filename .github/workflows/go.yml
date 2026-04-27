@@ -1,0 +1,90 @@
+# Synctuary Go server — CI
+#
+# Runs on every push to main and on every PR. Two stages:
+#   1. test-and-build: go vet + go test (race + count=1) + go build
+#   2. lint:           golangci-lint with the project's .golangci.yml
+#
+# Both stages use Go 1.22 (pinned via go.mod's `go 1.22` directive).
+# The Go module lives under synctuary-server/, not at repo root, so
+# every job sets working-directory accordingly.
+
+name: Go CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'synctuary-server/**'
+      - '.github/workflows/go.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'synctuary-server/**'
+      - '.github/workflows/go.yml'
+
+# The workflow only ever reads from the repo and never writes back.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: synctuary-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: synctuary-server/go.mod
+          cache-dependency-path: synctuary-server/go.sum
+
+      - name: Verify modules are tidy
+        run: |
+          go mod download
+          go mod verify
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      # -count=1 disables the test cache (we want a fresh result on CI).
+      # -race enables the race detector — slower but catches data races
+      # in the goroutine-heavy upload session and rate limiter code.
+      - name: go test
+        run: go test -count=1 -race -timeout=5m ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: synctuary-server/go.mod
+          cache-dependency-path: synctuary-server/go.sum
+
+      # The official action handles lint binary caching, version pinning,
+      # and result annotation in PR diffs.
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.59.1
+          working-directory: synctuary-server
+          args: --timeout=3m

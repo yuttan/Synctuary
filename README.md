@@ -1,5 +1,10 @@
 # Synctuary
 
+[![Go CI](https://github.com/yuttan/Synctuary/actions/workflows/go.yml/badge.svg)](https://github.com/yuttan/Synctuary/actions/workflows/go.yml)
+[![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
+[![PROTOCOL](https://img.shields.io/badge/PROTOCOL-v0.2.2-purple.svg)](./PROTOCOL.md)
+[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg?logo=go&logoColor=white)](./synctuary-server/go.mod)
+
 A self-hosted file synchronization server for the home LAN, with native clients.
 
 > **Status**: pre-1.0, active development. Server (Go) is feature-complete for v0.4 / PROTOCOL v0.2.2; Android client is in design phase.
