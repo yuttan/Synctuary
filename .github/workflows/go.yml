@@ -26,6 +26,11 @@ on:
 permissions:
   contents: read
 
+# Opt actions in to Node.js 24 ahead of the 2026-09 removal of Node 20.
+# Drop this once Node 24 becomes the default on hosted runners.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
