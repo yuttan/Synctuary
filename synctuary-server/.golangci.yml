@@ -1,0 +1,62 @@
+# Synctuary Go server — lint policy.
+#
+# The single hard rule today: never let `math/rand` slip into a tree
+# whose security model depends on Ed25519 challenges and unguessable
+# pairing nonces. Anything that needs randomness goes through
+# `crypto/rand` (see internal/adapter/infrastructure/crypto).
+#
+# Run: `golangci-lint run ./...`
+
+run:
+  timeout: 3m
+  go: "1.22"
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck       # unhandled errors
+    - govet          # vet checks (shadow, copylocks, lostcancel, ...)
+    - ineffassign    # unused assignments
+    - staticcheck    # SA-class bug catches
+    - unused         # dead code
+    - gofmt
+    - goimports
+    - forbidigo      # math/rand prohibition (see below)
+    - bodyclose      # http.Response.Body never leaked
+    - errorlint      # use errors.Is / %w correctly
+    - gosec          # security smells
+    - misspell
+
+linters-settings:
+  forbidigo:
+    # Treat the import path as the offence — anything that pulls in
+    # math/rand or math/rand/v2 fails the build. Use crypto/rand.
+    forbid:
+      - p: '^math/rand$'
+        msg: "use crypto/rand for any randomness in this codebase (security model depends on it)"
+      - p: '^math/rand/v2$'
+        msg: "use crypto/rand for any randomness in this codebase (security model depends on it)"
+    analyze-types: true
+  gosec:
+    excludes:
+      # G104 = unhandled errors; we already have errcheck for that
+      # and gosec's heuristic produces a lot of duplicates.
+      - G104
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+
+issues:
+  exclude-dirs:
+    - internal/migrations  # SQL-only package
+  exclude-rules:
+    # Test files may use the standard library's testing fixtures
+    # without bodyclose noise.
+    - path: _test\.go
+      linters:
+        - bodyclose
+        - gosec
+  max-issues-per-linter: 0
+  max-same-issues: 0

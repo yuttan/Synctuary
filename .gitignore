@@ -1,0 +1,89 @@
+# =====================================================
+# Synctuary — repository ignore rules
+# =====================================================
+
+# ---- Go (synctuary-server) ----
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+synctuary-server/synctuaryd
+synctuary-server/cmd/synctuaryd/synctuaryd
+# Test binaries / coverage
+*.test
+*.out
+coverage.html
+# Go workspace
+go.work
+go.work.sum
+# Module download cache (if vendored)
+synctuary-server/vendor/
+
+# ---- Daemon runtime artefacts (NEVER commit these) ----
+# Master key, device tokens, server-issued data, SQLite DBs, master mnemonic
+# Smoke-test / development server roots:
+/tmp/
+synctuary-server/data/
+synctuary-server/storage/
+synctuary-server/staging/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+master_key
+master_key.bin
+*.pem
+*.key
+*.crt
+# Local dev configs
+config.local.yaml
+config.local.yml
+config.local.toml
+
+# ---- Android client (future) ----
+# Gradle
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+# Generated keystore
+*.jks
+*.keystore
+release.keystore
+
+# ---- Editor / IDE / OS ----
+# VSCode
+.vscode/
+# JetBrains
+.idea/
+*.iml
+# macOS
+.DS_Store
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+# Vim
+*.swp
+*.swo
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ---- Internal working notes (NOT for upstream) ----
+pending_resume.md
+
+# ---- Build / lint caches ----
+.golangci-cache/
+node_modules/
