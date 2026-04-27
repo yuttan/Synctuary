@@ -48,7 +48,9 @@ Unit tests live next to their files (`*_test.go`); end-to-end integration tests 
 
 ## License
 
-TODO (probably Apache-2.0 or MIT — TBD).
+Licensed under the [Apache License, Version 2.0](./LICENSE).
+
+The Apache-2.0 license was chosen for its explicit patent grant (relevant for the cryptographic primitives used in pairing and content addressing) and its compatibility with the broader Go ecosystem. The protocol itself (`PROTOCOL.md`) is intended to be implementable independently — clients in any language under any license are welcome.
 
 ## Contributing
 
