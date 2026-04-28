@@ -60,3 +60,14 @@ The Apache-2.0 license was chosen for its explicit patent grant (relevant for th
 ## Contributing
 
 This is currently a personal project but the protocol is designed to be implementable independently. Issues / discussions welcome.
+
+### Branch protection on `main`
+
+`main` is protected by a [repository ruleset](./.github/branch-protection.json). All changes — including those by repository owners — go through a pull request:
+
+1. Direct pushes to `main` are blocked.
+2. Force pushes and branch deletion are blocked.
+3. CI status checks (`Test & Build` and `golangci-lint`) MUST be green before merge.
+4. PRs MUST be up-to-date with `main` (strict mode) before merge.
+
+The ruleset definition is committed to the repo (`.github/branch-protection.json`) and was applied via `gh api -X POST 'repos/yuttan/Synctuary/rulesets' --input .github/branch-protection.json`. Update it in-place and re-apply via `gh api -X PUT 'repos/yuttan/Synctuary/rulesets/<id>' --input .github/branch-protection.json` when the policy changes.
