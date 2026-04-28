@@ -1,0 +1,93 @@
+# Synctuary Android client — CI
+#
+# One job: builds the debug APK + runs unit tests + lint. We deliberately
+# avoid instrumentation tests on CI today (they need an emulator, which
+# burns ~6 minutes per run on free runners); those land when the test
+# surface justifies it.
+#
+# Path filter: only fires on synctuary-android/** changes plus this
+# workflow itself, so doc-only commits to the rest of the repo don't
+# burn Android CI minutes.
+
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'synctuary-android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'synctuary-android/**'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
+
+# Future-proof against the 2026-09 Node 20 retirement on hosted runners.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+# Cancel superseded runs on the same branch to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: synctuary-android
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Caches the gradle distribution + wrapper download + ~/.gradle/caches.
+      # On a clean run the gradle distribution alone is ~150 MB, so caching
+      # cuts cold-start by ~30 seconds on subsequent CI runs.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Cache key seeded by the wrapper version + libs.versions.toml content.
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+
+      - name: Show Gradle version
+        run: ./gradlew --version
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Lint (debug)
+        run: ./gradlew :app:lintDebug --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: synctuary-android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload lint report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: synctuary-android/app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+          retention-days: 7

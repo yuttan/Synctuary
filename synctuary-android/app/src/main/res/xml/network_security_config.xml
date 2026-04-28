@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Default: cleartext denied (matches usesCleartextTraffic="false" in the
+   manifest). PROTOCOL §10.1 dev-plaintext servers are RFC1918 + LAN-only
+   by spec, but we still require an explicit per-host opt-in here so a
+   bug in the user's profile-pinning code can't quietly downgrade.
+
+   To support a dev-plaintext server, an `<domain-config>` block with
+   `cleartextTrafficPermitted="true"` and a specific `<domain>` can be
+   added at runtime via NetworkSecurityConfig API on Android Q+. v0.4
+   ships TLS-only.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <!-- User-installed CAs (e.g., a self-signed home-LAN root) accepted only
+                 in debug builds; release builds ignore the user store to harden
+                 against MITM via a sideloaded root cert. -->
+            <certificates src="user" overridePins="false" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

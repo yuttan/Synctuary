@@ -1,0 +1,19 @@
+# gradlew is a POSIX shell script — MUST stay LF on all platforms or
+# Linux CI will fail to interpret the shebang line.
+gradlew         text eol=lf
+*.sh            text eol=lf
+
+# Windows-only batch scripts must keep CRLF.
+gradlew.bat     text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Treat known binary types as binary (no diffs / merges).
+*.jar           binary
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.webp          binary
+*.keystore      binary
+*.jks           binary

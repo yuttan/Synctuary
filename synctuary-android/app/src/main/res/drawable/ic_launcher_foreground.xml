@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synctuary mark: a stylized lock+sync glyph. Vector so we don't have
+     to ship 5 PNG densities for a placeholder icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateX="22" android:translateY="22">
+        <path
+            android:fillColor="#EADDFF"
+            android:pathData="M32,0 C14.3,0 0,14.3 0,32 C0,49.7 14.3,64 32,64 C49.7,64 64,49.7 64,32 C64,14.3 49.7,0 32,0 Z M32,8 C45.3,8 56,18.7 56,32 C56,45.3 45.3,56 32,56 C18.7,56 8,45.3 8,32 C8,18.7 18.7,8 32,8 Z" />
+        <path
+            android:fillColor="#EADDFF"
+            android:pathData="M32,18 C24.3,18 18,24.3 18,32 C18,39.7 24.3,46 32,46 L32,40 C27.6,40 24,36.4 24,32 C24,27.6 27.6,24 32,24 L32,18 Z" />
+    </group>
+</vector>

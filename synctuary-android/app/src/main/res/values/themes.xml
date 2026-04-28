@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+        Manifest needs an Activity / Application theme that exists at parse
+        time before Compose takes over. We give it a plain Material 3
+        DayNight base so the app launches with a sane scrim before
+        SynctuaryTheme draws — the actual color scheme comes from Compose.
+    -->
+    <style name="Theme.Synctuary" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/synctuary_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+    </style>
+</resources>
