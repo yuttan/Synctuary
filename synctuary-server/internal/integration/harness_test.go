@@ -110,6 +110,7 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	deviceRepo := db.NewDeviceRepository(database)
 	fileRepo := db.NewFileRepository(database)
+	favoriteRepo := db.NewFavoriteRepository(database)
 	nonceStore := db.NewNonceStore(database)
 
 	storage, err := fs.NewFileStorage(storeRoot, stagingRoot, &shaResolver{repo: fileRepo, root: storeRoot})
@@ -135,12 +136,17 @@ func newTestEnv(t *testing.T) *testEnv {
 		t.Fatalf("file svc: %v", err)
 	}
 	deviceSvc := usecase.NewDeviceService(deviceRepo)
+	favoriteSvc, err := usecase.NewFavoriteService(favoriteRepo, nil)
+	if err != nil {
+		t.Fatalf("favorite svc: %v", err)
+	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler, err := httpapi.NewHandler(httpapi.HandlerConfig{
 		Pairing:          pairingSvc,
 		Files:            fileSvc,
 		Devices:          deviceSvc,
+		Favorites:        favoriteSvc,
 		DeviceRepo:       deviceRepo,
 		Logger:           logger,
 		ServerID:         serverID,
@@ -149,7 +155,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		TransportProfile: "dev-plaintext",
 		TLSFingerprint:   fingerprint,
 		ServerVersion:    "test",
-		ProtocolVersion:  "0.2.2",
+		ProtocolVersion:  "0.2.3",
 		Capabilities: map[string]bool{
 			"range_download":   true,
 			"resumable_upload": true,

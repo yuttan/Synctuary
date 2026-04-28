@@ -1,15 +1,17 @@
 # Synctuary Protocol Specification
 
-**Version**: 0.2.2
-**Date**: 2026-04-22
+**Version**: 0.2.3
+**Date**: 2026-04-28
 **Status**: Final
 **License**: CC-BY-4.0
 
 This document defines the wire protocol between Synctuary clients and servers. Third-party implementations of clients or servers conforming to this specification are welcome.
 
+**Changes from v0.2.2 Final**: Added §8 Favorites — server-managed lists of file/directory paths shared across all devices paired with the same `master_key`, with a soft-hide flag and explicit security model leaving stronger access control to the client. Renumbered §9–13 (Errors, Transport Security, Private Mode, Reserved, References) to make room. Updated reference implementation license note to Apache-2.0.
+
 **Changes from v0.2.1 Draft**: Specified deduplication fallback when server-side linking fails (§6.3.1, Critical — avoids client deadlock on cross-volume FS), added single-active-session rule for concurrent uploads to the same `path` (§6.3.5 new, Major — prevents last-write-wins race between devices), added implementation note on idempotent retry content blindness (§6.3.2, Major — explicit debugging-hazard warning), mandated CSPRNG for `nonce` (§4.2) and `device_token` (§4.3) generation (Minor).
 
-**Changes from v0.2 Draft**: Clarified deduplicated-upload server obligations (§6.3.1, Critical), defined `transport_profile` downgrade detection trigger (§9, Major), specified chunk retry idempotency semantics (§6.3.2, Minor), and added explicit notes on binary field encoding (§4.3), `master_key` persistence (§4.4), `If-None-Match` handling (§6.2), and pairing payload byte-length annotations (§4.1).
+**Changes from v0.2 Draft**: Clarified deduplicated-upload server obligations (§6.3.1, Critical), defined `transport_profile` downgrade detection trigger (§10, Major), specified chunk retry idempotency semantics (§6.3.2, Minor), and added explicit notes on binary field encoding (§4.3), `master_key` persistence (§4.4), `If-None-Match` handling (§6.2), and pairing payload byte-length annotations (§4.1).
 
 **Changes from v0.1 Draft**: Added pairing nonce (Critical, replay protection), exposed `tls_fingerprint` / `transport_profile` via `/info`, defined `move` response, demoted `lan-only` to `dev-plaintext` (development only), mandated sequential chunk ordering in v0.2, unified Base64URL conventions, added `mime_type`, `?hash=true` opt-in, explicit sanitization rules, 405/415 status codes, device enumeration scope, and several clarifications.
 
@@ -28,7 +30,7 @@ This document defines the wire protocol between Synctuary clients and servers. T
   - Leading or trailing whitespace in any component MUST be rejected.
   - Windows-reserved component names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, case-insensitive) SHOULD be rejected regardless of the server's host OS, for portability.
 - Protocol version is expressed in the URL: `/api/v1/…`
-- Servers MUST support TLS 1.2+ in production (see §9).
+- Servers MUST support TLS 1.2+ in production (see §10).
 
 ## 2. Transport
 
@@ -218,7 +220,7 @@ Unauthenticated. Used for discovery and capability negotiation.
 ```
 
 - `encryption_mode` ∈ `{"standard", "private"}`, chosen at server setup, immutable.
-- `transport_profile` ∈ `{"dev-plaintext", "tls-ca-verified", "tls-self-signed"}` (see §9).
+- `transport_profile` ∈ `{"dev-plaintext", "tls-ca-verified", "tls-self-signed"}` (see §10).
 - `tls_fingerprint` is the SHA-256 of the server's TLS leaf certificate (DER-encoded), lowercase hex. Omitted when `transport_profile == "dev-plaintext"`.
 - `capabilities` contains boolean flags only. Capability names are additive-only across versions; removal of a capability requires a major version bump (`/api/v2/…`).
 
@@ -528,7 +530,221 @@ Revokes a device. Any subsequent request carrying the revoked `device_token` MUS
 
 **Response:** `204 No Content`.
 
-## 8. Errors
+## 8. Favorites
+
+Favorites are server-managed lists of file/directory paths used as quick-access shortcuts. A list belongs to the server (one root identity), not to a single device, and is therefore visible from every device paired with the same `master_key`. A list MAY be marked `hidden`, in which case the server omits it from default queries — see §8.9 for the security model.
+
+Endpoints in this section require a valid `Authorization: Bearer <device_token>` header. Favorites are independent of `encryption_mode`; the same endpoint shapes apply to both Standard and Private modes.
+
+### 8.1 Data Model
+
+A `FavoriteList` represents a named collection of paths:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string (base64url-16bytes) | Server-issued opaque identifier |
+| `name` | string (1..256 NFC chars) | User-supplied label |
+| `hidden` | bool | When `true`, omitted from default GET responses (§8.9) |
+| `item_count` | integer | Number of items in the list |
+| `created_at` | int64 | Unix epoch seconds |
+| `modified_at` | int64 | Updated on metadata change OR item add/remove |
+| `created_by_device_id` | string (base64url-16bytes) | Origin device, for audit |
+
+A `FavoriteItem` represents one entry in a list:
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | string | Per §1 path conventions |
+| `added_at` | int64 | Unix epoch seconds |
+| `added_by_device_id` | string (base64url-16bytes) | Originating device |
+
+Items reference paths by string only — they do **not** track inode / sha256 / version. If the underlying file is moved (§6.5) or deleted, the favorite item is left dangling; clients SHOULD surface a "not found" indicator on resolve. Servers MUST NOT auto-prune dangling items — the server cannot distinguish "deleted" from "temporarily moved by reorganization".
+
+A path MAY appear in multiple lists. A path MAY appear at most once per list (idempotent add — see §8.7).
+
+### 8.2 `GET /api/v1/favorites`
+
+Returns favorite-list summaries (without items).
+
+**Query parameters:**
+
+| Name | Type | Default | Description |
+|---|---|---|---|
+| `include_hidden` | bool | `false` | When `true`, lists with `hidden=true` are also returned. See §8.9. |
+
+**Response (200):**
+
+```json
+{
+  "lists": [
+    {
+      "id": "AbCd...",
+      "name": "Favorite photos",
+      "hidden": false,
+      "item_count": 12,
+      "created_at": 1713500000,
+      "modified_at": 1713552000,
+      "created_by_device_id": "EfGh..."
+    }
+  ]
+}
+```
+
+Lists are returned in `modified_at` descending order. Because `modified_at` is at one-second resolution, ties between lists touched in the same second are resolved by `id` descending — clients that diff successive responses can rely on the ordering being stable.
+
+### 8.3 `GET /api/v1/favorites/<id>`
+
+Returns the full list including its items.
+
+**Response (200):**
+
+```json
+{
+  "id": "AbCd...",
+  "name": "Favorite photos",
+  "hidden": false,
+  "item_count": 2,
+  "created_at": 1713500000,
+  "modified_at": 1713552000,
+  "created_by_device_id": "EfGh...",
+  "items": [
+    {
+      "path": "/Photos/IMG_2026.jpg",
+      "added_at": 1713551000,
+      "added_by_device_id": "EfGh..."
+    },
+    {
+      "path": "/Photos/sunset.jpg",
+      "added_at": 1713552000,
+      "added_by_device_id": "IjKl..."
+    }
+  ]
+}
+```
+
+Items are returned in `added_at` ascending order.
+
+**Errors:** `404 favorite_list_not_found` is returned for any unknown `id`, regardless of whether the list is hidden — this avoids leaking the existence of hidden lists via probing.
+
+### 8.4 `POST /api/v1/favorites`
+
+Creates a new list.
+
+**Request:**
+
+```json
+{
+  "name": "Favorite photos",
+  "hidden": false
+}
+```
+
+- `name` MUST be 1..256 NFC characters; leading/trailing whitespace MUST be rejected; embedded control characters (per §1 path rules) MUST be rejected.
+- `hidden` defaults to `false` if omitted.
+
+**Response (201):**
+
+```json
+{
+  "id": "AbCd...",
+  "name": "Favorite photos",
+  "hidden": false,
+  "item_count": 0,
+  "created_at": 1713600000,
+  "modified_at": 1713600000,
+  "created_by_device_id": "EfGh..."
+}
+```
+
+**Errors:** `400 favorite_name_invalid`.
+
+### 8.5 `PATCH /api/v1/favorites/<id>`
+
+Updates a list's metadata. Item-level changes go through §8.7 / §8.8.
+
+**Request:**
+
+```json
+{
+  "name": "New name (optional)",
+  "hidden": true
+}
+```
+
+- All fields are optional; absent fields are unchanged.
+- An empty body MUST be rejected with `400 bad_request`.
+
+**Response (200):** Updated summary, same shape as §8.2 entries.
+
+**Errors:** `400 favorite_name_invalid`, `404 favorite_list_not_found`.
+
+### 8.6 `DELETE /api/v1/favorites/<id>`
+
+Deletes a list and all its items. **Underlying files are NOT touched.**
+
+**Response:** `204 No Content`.
+
+**Errors:** `404 favorite_list_not_found`.
+
+### 8.7 `POST /api/v1/favorites/<id>/items`
+
+Adds a path to a list. Idempotent.
+
+**Request:**
+
+```json
+{
+  "path": "/Photos/IMG_2026.jpg"
+}
+```
+
+- `path` MUST satisfy §1 path rules.
+- The server MUST NOT verify that the path currently exists on disk — favorites are informational metadata, not hard references — but MUST reject paths that would currently be rejected by §6 endpoints (traversal, control bytes, etc.).
+
+**Response (201, new item):**
+
+```json
+{
+  "path": "/Photos/IMG_2026.jpg",
+  "added_at": 1713600000,
+  "added_by_device_id": "EfGh..."
+}
+```
+
+**Response (200, idempotent):** if the path is already in the list, the server returns the existing entry unchanged with status `200 OK` (no error). The list's `modified_at` is **not** advanced in this case.
+
+**Errors:** `400 bad_request` (path validation), `404 favorite_list_not_found`.
+
+### 8.8 `DELETE /api/v1/favorites/<id>/items`
+
+Removes a path from a list.
+
+**Query parameters:**
+
+| Name | Type | Description |
+|---|---|---|
+| `path` | string | The path to remove. |
+
+**Response:** `204 No Content`.
+
+**Errors:** `404 favorite_list_not_found`, `404 favorite_item_not_found`.
+
+### 8.9 Security Model — Hidden Lists
+
+The `hidden` flag is a **soft hide**: it gates the default response of `GET /api/v1/favorites` (§8.2) but is **NOT** an access-control mechanism. Any device with a valid bearer token can:
+
+- Set `?include_hidden=true` and receive all hidden lists with no additional authentication.
+- Read a hidden list's items via `GET /api/v1/favorites/<id>` (§8.3) if it knows the `id`.
+
+This design intentionally keeps the server stateless about per-call privilege. Clients SHOULD treat the surfacing of hidden lists as a privileged UI action and gate it behind a local biometric / PIN prompt (or equivalent OS-level user verification). A typical client UX:
+
+- "Show hidden lists" entry in the favorites screen.
+- On tap, prompt for biometric / PIN; on success, request `?include_hidden=true` and unlock for a bounded session (e.g., 5 minutes or until app backgrounding).
+- Re-lock automatically on session expiry.
+
+Future versions (v0.3+) MAY introduce a server-side list-level passphrase or per-item client-side encryption; v0.2.3 servers MUST NOT depend on or expect such schemes.
+
+## 9. Errors
 
 All error responses use:
 
@@ -548,10 +764,13 @@ Standard codes:
 | HTTP | code | Meaning |
 |---|---|---|
 | 400 | `bad_request` | Malformed request |
+| 400 | `favorite_name_invalid` | Favorite list name fails §8.4 / §8.5 validation |
 | 401 | `unauthorized` | Missing/invalid token or signature |
 | 401 | `token_revoked` | Device token has been revoked (§7.2) |
 | 403 | `forbidden` | Token valid but operation not permitted |
 | 404 | `not_found` | Resource does not exist |
+| 404 | `favorite_list_not_found` | Favorite list `id` is unknown (§8.3, §8.5–8.8) |
+| 404 | `favorite_item_not_found` | Path is not present in the list (§8.8) |
 | 405 | `method_not_allowed` | HTTP method not supported at this path |
 | 409 | `conflict` / `file_exists` / `directory_not_empty` / `upload_range_mismatch` / `upload_in_progress` / `pair_device_id_collision` | Resource conflict |
 | 410 | `pair_nonce_expired` | Pairing nonce expired or already consumed |
@@ -564,7 +783,7 @@ Standard codes:
 | 503 | `service_unavailable` | Transient overload (e.g. hash job saturation) |
 | 507 | `insufficient_storage` | Disk full |
 
-## 9. Transport Security
+## 10. Transport Security
 
 Servers declare one of three transport profiles (exposed via `/info.transport_profile`):
 
@@ -576,7 +795,7 @@ Servers declare one of three transport profiles (exposed via `/info.transport_pr
 
 `dev-plaintext` replaces v0.1's `lan-only`. The rename is intentional: the previous name understated the risk of token theft on the local segment.
 
-### 9.1 Profile Pinning and Downgrade Detection
+### 10.1 Profile Pinning and Downgrade Detection
 
 Clients MUST persist the `transport_profile` value recorded at pairing time (from `GET /api/v1/info` performed during the pairing flow, §4.1) alongside the `server_fingerprint` and `device_token`.
 
@@ -594,7 +813,7 @@ On **every** subsequent connection, before sending any `Authorization` header, t
 
 A fingerprint mismatch under `tls-ca-verified` is acceptable (certificate rotation is expected), provided the new certificate is trusted by the system CA store.
 
-## 10. Private Mode (E2E) — v0.3 Preview
+## 11. Private Mode (E2E) — v0.3 Preview
 
 *Normative specification deferred to `PROTOCOL-private.md` in v0.3. The following is informative.*
 
@@ -608,7 +827,7 @@ In Private Mode:
 - Directory listing is implemented via a separate encrypted manifest.
 - Deduplication uses convergent encryption over the plaintext SHA-256, acknowledged trade-off (CE is vulnerable to confirmation-of-file attacks when the key space is enumerable).
 
-## 11. Reserved for Later Versions
+## 12. Reserved for Later Versions
 
 - 6-digit pairing code flow (v0.3)
 - Photo backup metadata channel and dedup by perceptual hash (v0.3)
@@ -620,14 +839,14 @@ In Private Mode:
 - Mesh VPN bootstrap endpoints for Headscale integration (v0.4)
 - Streaming decryption for Private Mode (v0.5)
 
-## 12. Reference Implementations
+## 13. Reference Implementations
 
-- Official server (Go, AGPL-3.0): *TBD GitHub URL*
-- Official Android client (Flutter, proprietary): *TBD*
-- Official Windows client (Flutter, proprietary): *TBD*
+- Official server (Go, Apache-2.0): https://github.com/yuttan/Synctuary — `synctuary-server/`
+- Official Android client (Kotlin + Jetpack Compose, Apache-2.0): planned, see `synctuary-android/` (TBD)
+- Official iOS client (Swift + SwiftUI, Apache-2.0): planned (TBD)
 
 Third-party implementations SHOULD set a descriptive `Server:` (responses) or `User-Agent:` (requests) header identifying the implementation and version.
 
 ---
 
-*End of Synctuary Protocol Specification v0.2.2.*
+*End of Synctuary Protocol Specification v0.2.3.*

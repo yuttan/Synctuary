@@ -31,9 +31,14 @@ import (
 //   - _pragma=busy_timeout(5000) — 5-second wait on contention
 //   - _pragma=foreign_keys(ON)   — enforce the uploads → devices FK
 //   - _pragma=synchronous(NORMAL) — safe under WAL, faster than FULL
+//   - _txlock=immediate          — every BEGIN acquires the write lock
+//     up front, so busy_timeout has a chance to retry instead of failing
+//     mid-transaction with SQLITE_BUSY when another writer (e.g., the
+//     fire-and-forget TouchLastSeen from BearerAuth, or the PROTOCOL §8
+//     favorite item add) holds the lock.
 func Open(path string) (*sql.DB, error) {
 	dsn := fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)",
+		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)&_txlock=immediate",
 		path,
 	)
 	database, err := sql.Open("sqlite", dsn)

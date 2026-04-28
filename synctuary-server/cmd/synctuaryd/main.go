@@ -56,7 +56,7 @@ import (
 
 // protocolVersion / serverVersion are advertised via /api/v1/info.
 const (
-	protocolVersion = "0.2.2"
+	protocolVersion = "0.2.3"
 	serverVersion   = "0.4.0"
 )
 
@@ -129,6 +129,7 @@ func main() {
 	// ── repositories + storage ────────────────────────────────────
 	deviceRepo := db.NewDeviceRepository(database)
 	fileRepo := db.NewFileRepository(database)
+	favoriteRepo := db.NewFavoriteRepository(database)
 	nonceStore := db.NewNonceStore(database)
 
 	storage, err := fs.NewFileStorage(cfg.Storage.RootPath, cfg.Storage.StagingPath, &shaResolver{repo: fileRepo, root: cfg.Storage.RootPath})
@@ -162,12 +163,18 @@ func main() {
 		os.Exit(1)
 	}
 	deviceSvc := usecaseDevice(deviceRepo)
+	favoriteSvc, err := usecase.NewFavoriteService(favoriteRepo, nil)
+	if err != nil {
+		logger.Error("favorite service init failed", "err", err)
+		os.Exit(1)
+	}
 
 	// ── HTTP handler ──────────────────────────────────────────────
 	handler, err := httpapi.NewHandler(httpapi.HandlerConfig{
 		Pairing:          pairingSvc,
 		Files:            fileSvc,
 		Devices:          deviceSvc,
+		Favorites:        favoriteSvc,
 		DeviceRepo:       deviceRepo,
 		Logger:           logger,
 		ServerID:         serverID,

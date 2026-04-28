@@ -34,8 +34,8 @@ func TestInfo(t *testing.T) {
 			t.Errorf("missing field %q in /info response: %+v", k, body)
 		}
 	}
-	if got := body["protocol_version"]; got != "0.2.2" {
-		t.Errorf("protocol_version=%v, want 0.2.2", got)
+	if got := body["protocol_version"]; got != "0.2.3" {
+		t.Errorf("protocol_version=%v, want 0.2.3", got)
 	}
 	// server_id MUST be 16-byte base64url-without-padding (22 chars).
 	id, ok := body["server_id"].(string)

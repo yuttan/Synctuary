@@ -39,10 +39,11 @@ const maxJSONBody = 1 << 20 // 1 MiB
 // Handler is the chi-compatible aggregate of endpoint handlers. Each
 // method binds to a route in Register.
 type Handler struct {
-	pairing  *usecase.PairingService
-	files    *usecase.FileService
-	devices  *usecase.DeviceService
-	deviceRP device.Repository
+	pairing   *usecase.PairingService
+	files     *usecase.FileService
+	devices   *usecase.DeviceService
+	favorites *usecase.FavoriteService
+	deviceRP  device.Repository
 
 	log *slog.Logger
 
@@ -62,6 +63,7 @@ type HandlerConfig struct {
 	Pairing          *usecase.PairingService
 	Files            *usecase.FileService
 	Devices          *usecase.DeviceService
+	Favorites        *usecase.FavoriteService
 	DeviceRepo       device.Repository
 	Logger           *slog.Logger
 	ServerID         []byte
@@ -76,7 +78,7 @@ type HandlerConfig struct {
 
 // NewHandler validates the config and returns a Handler ready to mount.
 func NewHandler(cfg HandlerConfig) (*Handler, error) {
-	if cfg.Pairing == nil || cfg.Files == nil || cfg.Devices == nil || cfg.DeviceRepo == nil {
+	if cfg.Pairing == nil || cfg.Files == nil || cfg.Devices == nil || cfg.Favorites == nil || cfg.DeviceRepo == nil {
 		return nil, fmt.Errorf("http: missing usecase dependency")
 	}
 	if cfg.Logger == nil {
@@ -89,6 +91,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		pairing:          cfg.Pairing,
 		files:            cfg.Files,
 		devices:          cfg.Devices,
+		favorites:        cfg.Favorites,
 		deviceRP:         cfg.DeviceRepo,
 		log:              cfg.Logger,
 		serverID:         cfg.ServerID,
@@ -127,6 +130,15 @@ func (h *Handler) Register(r chi.Router) {
 
 		r.Get("/api/v1/devices", h.DevicesList)
 		r.Delete("/api/v1/devices/{id}", h.DeviceRevoke)
+
+		// PROTOCOL §8 favorites.
+		r.Get("/api/v1/favorites", h.FavoritesList)
+		r.Post("/api/v1/favorites", h.FavoriteCreate)
+		r.Get("/api/v1/favorites/{id}", h.FavoriteGet)
+		r.Patch("/api/v1/favorites/{id}", h.FavoritePatch)
+		r.Delete("/api/v1/favorites/{id}", h.FavoriteDelete)
+		r.Post("/api/v1/favorites/{id}/items", h.FavoriteItemAdd)
+		r.Delete("/api/v1/favorites/{id}/items", h.FavoriteItemRemove)
 	})
 }
 
