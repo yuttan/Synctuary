@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Auto Backup rules. We exclude EVERYTHING by default because the app
+   carries device_token + master_key material in its EncryptedSharedPreferences;
+   restoring those bytes onto a new device would let an attacker who pulled
+   a Google Drive backup impersonate the original device to the server.
+
+   Re-pairing is the safe recovery path; backup adds attack surface for no
+   user-visible benefit on a sync client.
+-->
+<full-backup-content>
+    <exclude domain="root"             />
+    <exclude domain="file"             />
+    <exclude domain="database"         />
+    <exclude domain="sharedpref"       />
+    <exclude domain="external"         />
+</full-backup-content>

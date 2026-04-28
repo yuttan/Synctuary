@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Android 12+ data-extraction rules. Mirror the backup_rules above:
+   exclude all device-resident state from both cloud-backup and
+   device-to-device transfer flows.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root"       />
+        <exclude domain="file"       />
+        <exclude domain="database"   />
+        <exclude domain="sharedpref" />
+        <exclude domain="external"   />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root"       />
+        <exclude domain="file"       />
+        <exclude domain="database"   />
+        <exclude domain="sharedpref" />
+        <exclude domain="external"   />
+    </device-transfer>
+</data-extraction-rules>

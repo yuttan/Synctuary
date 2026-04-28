@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solid Synctuary purple-container background; the foreground glyph
+     sits on top per the adaptive-icon contract (108dp safe square inside
+     a 108dp tile). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#4F378B" />
+</shape>

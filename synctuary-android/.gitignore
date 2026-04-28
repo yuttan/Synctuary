@@ -1,0 +1,31 @@
+# =============================================================================
+# Synctuary Android — local build / IDE artifacts
+# =============================================================================
+# (Repo-root .gitignore covers Go-server entries; this file scopes Android-only.)
+
+# Gradle
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Generated keystore
+*.jks
+*.keystore
+release.keystore
+keystore.properties
+
+# Crash reports
+hs_err_pid*
+
+# Lint reports
+**/lint-results-*.html
+**/lint-results-*.xml

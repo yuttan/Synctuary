@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors SynctuaryBackground in ui/theme/Color.kt. -->
+    <color name="synctuary_background">#FF141218</color>
+    <color name="synctuary_primary">#FFCFBCFF</color>
+    <color name="synctuary_primary_container">#FF4F378B</color>
+</resources>
