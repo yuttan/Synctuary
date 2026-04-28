@@ -16,12 +16,12 @@ on:
     branches: [main]
     paths:
       - 'synctuary-android/**'
-      - '.github/workflows/android.yml'
+      - '.github/**'
   pull_request:
     branches: [main]
     paths:
       - 'synctuary-android/**'
-      - '.github/workflows/android.yml'
+      - '.github/**'
 
 permissions:
   contents: read

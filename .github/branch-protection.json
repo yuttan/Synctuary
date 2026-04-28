@@ -35,6 +35,9 @@
           },
           {
             "context": "golangci-lint"
+          },
+          {
+            "context": "Build & Test"
           }
         ]
       }
