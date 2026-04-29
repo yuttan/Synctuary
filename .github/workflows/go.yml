@@ -119,8 +119,9 @@ jobs:
           # base + Go module cache stick around).
           cache-from: type=gha
           cache-to:   type=gha,mode=max
-          # VERSION / COMMIT are accepted but currently no-op (main.go
-          # uses const, not var). Plumbed for the day we promote them.
+          # VERSION / COMMIT are injected via -ldflags -X into
+          # main.serverVersion / main.commit. Surfaced at startup logs
+          # and the /api/v1/info "commit" field (omitted when "unknown").
           build-args: |
             VERSION=ci-${{ github.sha }}
             COMMIT=${{ github.sha }}

@@ -55,6 +55,7 @@ type Handler struct {
 	tlsFingerprint   []byte // 32 bytes or nil
 	serverVersion    string
 	protocolVersion  string
+	commit           string // ldflags-injectable; "unknown" if unset
 	capabilities     map[string]bool
 }
 
@@ -73,6 +74,7 @@ type HandlerConfig struct {
 	TLSFingerprint   []byte
 	ServerVersion    string
 	ProtocolVersion  string
+	Commit           string // build-time git SHA; "unknown" if not injected
 	Capabilities     map[string]bool
 }
 
@@ -101,6 +103,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		tlsFingerprint:   cfg.TLSFingerprint,
 		serverVersion:    cfg.ServerVersion,
 		protocolVersion:  cfg.ProtocolVersion,
+		commit:           cfg.Commit,
 		capabilities:     cfg.Capabilities,
 	}, nil
 }
@@ -158,6 +161,11 @@ func (h *Handler) Info(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(h.tlsFingerprint) == 32 {
 		body["tls_fingerprint"] = hex.EncodeToString(h.tlsFingerprint)
+	}
+	// Build-time commit SHA — only emit when an injected value is present
+	// so devs running bare `go build` don't see a noisy "unknown" field.
+	if h.commit != "" && h.commit != "unknown" {
+		body["commit"] = h.commit
 	}
 	WriteJSON(w, http.StatusOK, body)
 }
