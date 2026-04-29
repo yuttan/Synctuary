@@ -1,0 +1,79 @@
+# Synctuary — Docker Compose deployment for a typical home server.
+#
+# Quick start:
+#   1. cp config.example.yml config.yml          # edit server.name, ports, etc.
+#   2. mkdir -p data tls                         # bind-mount targets
+#   3. (optional) generate TLS cert into tls/    # see tls/README.md
+#   4. docker compose up -d
+#
+# Volumes are bind-mounts so the master_key, content, and SQLite DB stay
+# on the host — nuke the container freely; only ./data is irreplaceable.
+#
+# The named volume approach (synctuary-data:) is left commented in case
+# you prefer Docker-managed volumes; bind-mounts are easier for backup
+# (rsync-friendly, snapshottable on ZFS / btrfs).
+
+services:
+  synctuary:
+    # Replace with `image: ghcr.io/yuttan/synctuary:0.4.0` once a
+    # release tag exists; for now build from local context.
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        VERSION: dev
+    image: synctuary-server:local
+
+    container_name: synctuary
+
+    # Restart on any non-zero exit and on host reboot, but stop honoring
+    # `docker compose down`.
+    restart: unless-stopped
+
+    # Distroless runs as 65532:65532 — chown the host directories
+    # accordingly: `sudo chown -R 65532:65532 ./data`. (Or rootless Docker.)
+    user: "65532:65532"
+
+    # 8443 is the PROTOCOL §10 default; remap host-side if 8443 is
+    # already taken (e.g., "9443:8443").
+    ports:
+      - "8443:8443"
+
+    volumes:
+      # The only state worth preserving — content + master_key + SQLite.
+      - ./data:/data
+
+      # Read-only mount for config + TLS material. The directory is
+      # optional; missing path will surface as a config-load error.
+      - ./config.yml:/etc/synctuary/config.yml:ro
+      - ./tls:/etc/synctuary/tls:ro
+
+    # Use the YAML config rather than env vars for deployment; env is
+    # still supported via SYNCTUARY_* but a file is easier to version.
+    command:
+      - "-config=/etc/synctuary/config.yml"
+
+    # Resource ceilings — tune for your hardware. The defaults below fit
+    # a single-user LAN deployment with ~1k files. The server's hot path
+    # (chunked upload + dedup link) is I/O bound, not CPU.
+    mem_limit: 512m
+    cpus: 1.5
+
+    # Logs hit the host journal by default; cap rotation so a chatty
+    # debug session can't fill the disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    # No depends_on / network — single-service deployment, the default
+    # bridge network is fine. To expose only on the LAN interface (not
+    # all interfaces) replace the ports clause with explicit binding,
+    # e.g. "192.168.1.10:8443:8443".
+
+# Uncomment to switch to a Docker-managed volume instead of bind-mount.
+#
+# volumes:
+#   synctuary-data:
+#     driver: local

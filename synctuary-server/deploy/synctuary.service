@@ -1,0 +1,123 @@
+# Synctuary — systemd unit for bare-metal Linux deployment.
+#
+# Install path: /etc/systemd/system/synctuary.service
+#
+# Prerequisites (run once as root):
+#   useradd --system --create-home --home-dir /var/lib/synctuary \
+#           --shell /usr/sbin/nologin synctuary
+#   install -d -o synctuary -g synctuary -m 0755 \
+#           /var/lib/synctuary/files \
+#           /var/lib/synctuary/staging \
+#           /var/lib/synctuary/secret \
+#           /etc/synctuary
+#   install -m 0644 deploy/config.example.yml /etc/synctuary/config.yml
+#   install -m 0755 synctuary-server/synctuaryd /usr/local/bin/synctuaryd
+#
+# Then:
+#   systemctl daemon-reload
+#   systemctl enable --now synctuary
+#   journalctl -u synctuary -f                     # tail logs
+#
+# The hardening directives below assume systemd 247+ (Debian 11+,
+# Ubuntu 22.04+, RHEL 9+, recent Arch). Older distros may need to
+# comment out individual lines that the kernel rejects.
+
+[Unit]
+Description=Synctuary self-hosted file synchronization server
+Documentation=https://github.com/yuttan/Synctuary
+Documentation=https://github.com/yuttan/Synctuary/blob/main/PROTOCOL.md
+# Wait for network (and DNS) before starting; the server binds early
+# and a flapping network would otherwise cause start-up failures.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+
+# Dedicated unprivileged user — created during install. The home dir
+# doubles as the storage root.
+User=synctuary
+Group=synctuary
+WorkingDirectory=/var/lib/synctuary
+
+# Single binary, single config. Override via env if you'd rather not
+# manage a YAML file (SYNCTUARY_* vars take precedence).
+ExecStart=/usr/local/bin/synctuaryd -config=/etc/synctuary/config.yml
+
+# Restart policy: bring the daemon back on any non-zero exit, with a
+# small back-off so a crash loop doesn't melt the disk via journald.
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Send SIGTERM on stop; the daemon's signal handler drains in-flight
+# uploads up to ServerConfig.shutdown_timeout (default 30s).
+KillSignal=SIGTERM
+TimeoutStopSec=45s
+
+# ---- Hardening (systemd man:systemd.exec) ----
+# Each directive adds a kernel-enforced restriction; any single one
+# breaking the daemon is a bug worth investigating before disabling.
+
+# Disallow gaining privileges via setuid/setgid bits.
+NoNewPrivileges=true
+
+# Private /tmp and /var/tmp; nothing the daemon writes leaks to other
+# services.
+PrivateTmp=true
+
+# Read-only / for the daemon, with explicit RW carve-out for state.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/synctuary
+# /etc/synctuary is read-only; ProtectSystem already covers it.
+
+# Zero access to /home, /root, /run/user.
+ProtectHome=true
+
+# No access to /dev (other than null/zero/random).
+PrivateDevices=true
+
+# Block writes to /sys, /proc/sys, kernel modules, and cgroups.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+
+# Address-family allowlist (Synctuary only needs IPv4/IPv6 + Unix).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Block exec of writable memory (W^X).
+MemoryDenyWriteExecute=true
+
+# Pin to the host's native syscall ABI (blocks 32-bit on 64-bit, etc.).
+SystemCallArchitectures=native
+
+# Allow only the syscall families a Go static binary needs at runtime;
+# blocks debug/profile/trace/keyring families that a compromised
+# daemon might use for lateral movement.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @debug @keyring @module @mount @raw-io @reboot @swap @cpu-emulation @obsolete
+
+# Lock down personality(2) — prevents 32-bit emulation tricks.
+LockPersonality=true
+
+# Drop ALL capabilities; we don't bind a privileged port (8443 > 1024)
+# and don't need root for anything else.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Keep umask sane (default already is 0022, but explicit is auditable).
+UMask=0027
+
+# ---- Resource limits ----
+# 65k FDs is generous for the upload session table + open file
+# descriptors during multi-chunk uploads.
+LimitNOFILE=65536
+# Don't let the daemon fork itself into oblivion.
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target

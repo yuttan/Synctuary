@@ -1,0 +1,87 @@
+# =============================================================================
+# Synctuary server — example configuration
+#
+# Copy to config.yml and edit to taste. Every setting below also has a
+# SYNCTUARY_* env-var override (see pkg/config/config.go); in case of
+# conflict, env-vars win.
+#
+# Defaults (compiled-in) match the values shown here exactly, so you can
+# start with a config.yml that's mostly empty and rely on the documented
+# defaults — explicit is just easier to audit.
+# =============================================================================
+
+server:
+  # Bind address. Use ":8443" for all interfaces or "192.168.1.10:8443"
+  # to restrict to a specific NIC (recommended on multi-homed hosts).
+  addr: ":8443"
+
+  # Advertised in /api/v1/info as server_name. Free-form, UTF-8.
+  name: "Synctuary"
+
+  # TLS material (PEM-encoded). Leave both empty for §10.1 dev-plaintext
+  # mode — DO NOT use in production. See deploy/tls/README.md for cert
+  # generation.
+  tls_cert_path: "/etc/synctuary/tls/server.crt"
+  tls_key_path:  "/etc/synctuary/tls/server.key"
+
+  # HTTP server timeouts. write_timeout is generous to accommodate
+  # multi-MiB chunk uploads on slow networks.
+  read_timeout:     30s
+  write_timeout:    5m
+  shutdown_timeout: 30s
+
+storage:
+  # Where user content lives. MUST be on a filesystem that supports
+  # hardlinks (ext4, xfs, btrfs, NTFS, APFS — all good).
+  root_path: "/data/files"
+
+  # In-progress upload staging area. Atomic rename target = root_path,
+  # so this MUST be on the same filesystem (cross-device rename fails).
+  staging_path: "/data/staging"
+
+  # Master key file. mode 0600, never read except at boot. If this file
+  # is missing on first launch, a 24-word BIP-39 mnemonic is generated
+  # and printed to STDERR exactly once — record it offline.
+  secret_path: "/data/secret/master_key"
+
+database:
+  # SQLite file. modernc.org/sqlite (pure-Go) — no libsqlite needed.
+  path: "/data/meta.db"
+
+upload:
+  # Chunk size advertised to clients (PROTOCOL §6.3.1). Clients SHOULD
+  # use this size; servers accept up to chunk_size_max.
+  chunk_size:     8388608    # 8 MiB
+  chunk_size_max: 33554432   # 32 MiB
+
+  # Upload session expires_at lifetime. After this idle period the
+  # server's GC ticker prunes the row + staging file.
+  session_ttl: 24h
+
+  # Behaviour when the storage layer can't materialize a hardlink
+  # (cross-device, FS lacks reflink/hardlink):
+  #   "fallthrough" — fall back to a normal chunked upload (default).
+  #   "sync_copy"   — synchronously copy the source file (server-side).
+  #
+  # sync_copy is convenient when same-content uploads to different
+  # paths happen often, but it blocks the request for the duration of
+  # the copy (subject to dedup_sync_copy_timeout).
+  dedup_fallback:           "fallthrough"
+  dedup_sync_copy_timeout:  30s
+
+pairing:
+  # Pairing nonce TTL (PROTOCOL §4.2). 5 minutes balances usability
+  # vs replay window.
+  nonce_ttl: 300s
+
+  # Sliding-window rate limit on pair endpoints (per source IP). The
+  # PROTOCOL recommends 5 req/min; tune higher if the LAN has many
+  # devices being onboarded in parallel.
+  rate_limit_max:    5
+  rate_limit_window: 1m
+
+log:
+  # "debug" | "info" | "warn" | "error"
+  level: "info"
+  # "json" | "text"
+  format: "json"
