@@ -1,15 +1,21 @@
 # Synctuary — release workflow.
 #
-# Two trigger paths, same job:
+# Three trigger paths, same job:
 #
 #   1. Tag push (v*.*.*) — produces vX.Y.Z, X.Y.Z, X.Y, X, latest tags
 #                          on the GHCR image, multi-arch amd64+arm64.
+#                          PUSHED to GHCR.
 #   2. Push to main      — produces a `main` tag and a sha-prefixed
 #                          tag, single-arch amd64 (faster, dev image).
+#                          PUSHED to GHCR.
+#   3. Pull request      — multi-arch build to validate the release
+#                          path stays green; NOT pushed (skip both the
+#                          login step and the push step). Acts as a
+#                          required status check so a PR that breaks
+#                          the release pipeline can't merge.
 #
-# The split keeps proper releases reproducible (multi-arch, semver)
-# while giving anyone who wants to track main a one-pull deploy via
-# `image: ghcr.io/yuttan/synctuary:main` in their compose file.
+# Path filter applies to all three triggers — doc-only PRs don't burn
+# CI on a multi-arch Docker build.
 
 name: Release
 
@@ -17,6 +23,11 @@ on:
   push:
     branches: [main]
     tags: ['v*.*.*']
+    paths:
+      - 'synctuary-server/**'
+      - '.github/workflows/release.yml'
+  pull_request:
+    branches: [main]
     paths:
       - 'synctuary-server/**'
       - '.github/workflows/release.yml'
@@ -59,7 +70,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Skip login on PRs — there's nothing to push, and PRs from
+      # forks wouldn't have access to GITHUB_TOKEN's packages:write
+      # scope anyway.
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -90,12 +105,16 @@ jobs:
             org.opencontainers.image.source=https://github.com/yuttan/Synctuary
             org.opencontainers.image.documentation=https://github.com/yuttan/Synctuary/tree/main/synctuary-server/deploy
 
-      # Multi-arch on tag push, single-arch on branch push (dev images
-      # don't justify the extra CI minutes for arm64 build).
+      # Multi-arch coverage policy:
+      #   - tag push (release): amd64 + arm64 (the actual product)
+      #   - PR (validation):    amd64 + arm64 (catch arm64 break early)
+      #   - main branch (dev):  amd64 only (already validated on PR;
+      #                         the dev image only needs to ship one arch)
       - name: Determine platforms
         id: platforms
         run: |
-          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ] || \
+             [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "list=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
           else
             echo "list=linux/amd64" >> "$GITHUB_OUTPUT"
@@ -106,7 +125,8 @@ jobs:
         with:
           context: synctuary-server
           file: synctuary-server/Dockerfile
-          push: true
+          # On PRs we only validate the build; nothing is pushed.
+          push: ${{ github.event_name != 'pull_request' }}
           platforms: ${{ steps.platforms.outputs.list }}
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -120,7 +140,12 @@ jobs:
           provenance: true
           sbom: true
 
-      - name: Image digest
+      - name: Summary
         run: |
-          echo "Pushed: ${{ steps.meta.outputs.tags }}"
-          echo "Platforms: ${{ steps.platforms.outputs.list }}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "Validated (no push) for platforms: ${{ steps.platforms.outputs.list }}"
+            echo "Tags that WOULD be pushed: ${{ steps.meta.outputs.tags }}"
+          else
+            echo "Pushed: ${{ steps.meta.outputs.tags }}"
+            echo "Platforms: ${{ steps.platforms.outputs.list }}"
+          fi

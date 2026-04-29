@@ -41,6 +41,9 @@
           },
           {
             "context": "Docker build"
+          },
+          {
+            "context": "Build & push to GHCR"
           }
         ]
       }
