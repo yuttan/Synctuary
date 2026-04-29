@@ -24,15 +24,20 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.ui.debug.PairingTestScreen
 import io.synctuary.android.ui.theme.SynctuaryTheme
 
 /**
  * Single-Activity entry point. Per the Android Architecture guide we host the
- * entire navigation graph inside one Activity backed by NavHost (added in
- * Phase 2 of the client roadmap).
+ * entire navigation graph inside one Activity backed by NavHost (added in a
+ * later phase).
  *
- * Today this just shows the brand splash so a fresh `assembleDebug` run can
- * be opened on a device and visually confirmed before we wire anything else.
+ * Phase 2 lands the crypto + network + pairing layers and a single debug
+ * screen ([PairingTestScreen]) that exercises the full §4.2 / §4.3 flow
+ * end-to-end. The polished onboarding UI (mockup screens 1-3) lands in
+ * Phase 2.2 along with NavHost.
+ *
+ * In release builds we still show the splash — debug screens are debug-only.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,7 +49,11 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    SynctuarySplash()
+                    if (BuildConfig.DEBUG) {
+                        PairingTestScreen()
+                    } else {
+                        SynctuarySplash()
+                    }
                 }
             }
         }

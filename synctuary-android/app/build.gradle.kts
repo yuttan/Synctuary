@@ -97,9 +97,11 @@ dependencies {
     implementation(libs.datastore.preferences)
 
     // Security: biometric prompt for the §8.9 hidden-list gate;
-    // EncryptedSharedPreferences-equivalent for the device_token.
+    // EncryptedSharedPreferences for the device_token; Bouncy Castle
+    // for Ed25519 + HKDF (PROTOCOL §3 / §4.1).
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.bouncycastle.bcprov)
 
     // Test
     testImplementation(libs.junit)

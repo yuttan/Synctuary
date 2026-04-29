@@ -38,6 +38,10 @@ datastore            = "1.1.1"
 # Crypto / security
 biometric            = "1.2.0-alpha05"
 security-crypto      = "1.1.0-alpha06"
+# Bouncy Castle: portable Java crypto provider. We pull only bcprov for
+# Ed25519 + HKDF helpers; Android 26's stock JCE doesn't ship Ed25519
+# until API 33 via Conscrypt, so BC keeps min-SDK 26 viable.
+bouncycastle         = "1.78.1"
 
 # Test
 junit                = "4.13.2"
@@ -85,6 +89,7 @@ datastore-preferences            = { module = "androidx.datastore:datastore-pref
 # Security
 androidx-biometric               = { module = "androidx.biometric:biometric-ktx",     version.ref = "biometric" }
 androidx-security-crypto         = { module = "androidx.security:security-crypto",    version.ref = "security-crypto" }
+bouncycastle-bcprov              = { module = "org.bouncycastle:bcprov-jdk18on",      version.ref = "bouncycastle" }
 
 # Test
 junit                            = { module = "junit:junit",                          version.ref = "junit" }
