@@ -38,6 +38,9 @@
           },
           {
             "context": "Build & Test"
+          },
+          {
+            "context": "Docker build"
           }
         ]
       }
