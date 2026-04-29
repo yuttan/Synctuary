@@ -1,0 +1,126 @@
+# Synctuary — release workflow.
+#
+# Two trigger paths, same job:
+#
+#   1. Tag push (v*.*.*) — produces vX.Y.Z, X.Y.Z, X.Y, X, latest tags
+#                          on the GHCR image, multi-arch amd64+arm64.
+#   2. Push to main      — produces a `main` tag and a sha-prefixed
+#                          tag, single-arch amd64 (faster, dev image).
+#
+# The split keeps proper releases reproducible (multi-arch, semver)
+# while giving anyone who wants to track main a one-pull deploy via
+# `image: ghcr.io/yuttan/synctuary:main` in their compose file.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+    paths:
+      - 'synctuary-server/**'
+      - '.github/workflows/release.yml'
+
+permissions:
+  contents: read
+  packages: write          # required to push to ghcr.io
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  REGISTRY: ghcr.io
+  # GHCR rejects uppercase letters in image names — repo casing differs,
+  # but the namespace must be lowercase regardless.
+  IMAGE_NAME: yuttan/synctuary
+
+# Cancel in-flight runs on the same ref so a tag amend doesn't double-push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # don't cancel a release mid-push
+
+jobs:
+  publish:
+    name: Build & push to GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # QEMU is needed to run the arm64 sanity-check inside the Dockerfile
+      # (the post-build `synctuaryd -h` line). Without QEMU, cross-compile
+      # still works but the sanity step would fail; with `|| true` it's
+      # graceful, but installing QEMU is cheap (~2 s) and lets the check
+      # actually fire on arm64.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Compute the tag set:
+      # - tag push v1.2.3  → 1.2.3, 1.2, 1, latest, sha-<7>
+      # - main branch push → main, sha-<7>
+      # - non-default branch push (won't run today, future-proofing)
+      - name: Compute Docker tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-,format=short
+          labels: |
+            org.opencontainers.image.title=Synctuary server
+            org.opencontainers.image.description=Self-hosted file synchronization server for the home LAN
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.source=https://github.com/yuttan/Synctuary
+            org.opencontainers.image.documentation=https://github.com/yuttan/Synctuary/tree/main/synctuary-server/deploy
+
+      # Multi-arch on tag push, single-arch on branch push (dev images
+      # don't justify the extra CI minutes for arm64 build).
+      - name: Determine platforms
+        id: platforms
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            echo "list=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+          else
+            echo "list=linux/amd64" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: synctuary-server
+          file: synctuary-server/Dockerfile
+          push: true
+          platforms: ${{ steps.platforms.outputs.list }}
+          tags:   ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          # VERSION = the human-readable tag if available, else short SHA.
+          # COMMIT  = full SHA of the commit being built.
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+          provenance: true
+          sbom: true
+
+      - name: Image digest
+        run: |
+          echo "Pushed: ${{ steps.meta.outputs.tags }}"
+          echo "Platforms: ${{ steps.platforms.outputs.list }}"

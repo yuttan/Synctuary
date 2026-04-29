@@ -40,13 +40,20 @@ COPY . .
 # -ldflags "-s -w" strips the symbol table + DWARF (~30% size cut);
 # -X main.serverVersion / main.commit inject build provenance, surfaced
 # at startup logs and via /api/v1/info.
+#
+# TARGETOS / TARGETARCH are auto-provided by BuildKit when --platform
+# is set on `docker buildx build`; Go cross-compiles natively without
+# QEMU emulation, so amd64 + arm64 multi-arch images build at host
+# speed. Defaults cover bare `docker build` (single-arch, host = build).
 ARG VERSION=dev
 ARG COMMIT=unknown
+ARG TARGETOS
+ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 \
-    GOOS=linux \
-    GOARCH=$(go env GOARCH) \
+    GOOS=${TARGETOS:-linux} \
+    GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build \
         -trimpath \
         -ldflags="-s -w -X main.serverVersion=${VERSION} -X main.commit=${COMMIT}" \
