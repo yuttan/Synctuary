@@ -1,0 +1,60 @@
+# =====================================================
+# Synctuary server — Docker build context exclusions.
+#
+# The Dockerfile only needs go.mod, go.sum, and the source tree under
+# cmd/, internal/, pkg/. Everything else inflates the build context
+# (longer image push, slower CI cache, occasional secrets leakage).
+# =====================================================
+
+# VCS / CI metadata
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Build artefacts that may exist locally
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+synctuaryd
+cmd/synctuaryd/synctuaryd
+*.test
+*.out
+coverage.html
+vendor/
+
+# Dev runtime artefacts (bind-mounted at runtime, not baked into image)
+data/
+storage/
+staging/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+master_key
+master_key.bin
+*.pem
+*.key
+*.crt
+
+# Local config overrides
+config.local.yaml
+config.local.yml
+config.local.toml
+
+# Docs / examples — useful in the repo, useless in the image
+deploy/
+README.md
+*.md
+
+# Editor / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*~
+*.swp
