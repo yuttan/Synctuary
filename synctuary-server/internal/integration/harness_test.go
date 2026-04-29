@@ -156,6 +156,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		TLSFingerprint:   fingerprint,
 		ServerVersion:    "test",
 		ProtocolVersion:  "0.2.3",
+		Commit:           "test-commit-sha",
 		Capabilities: map[string]bool{
 			"range_download":   true,
 			"resumable_upload": true,

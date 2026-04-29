@@ -37,12 +37,9 @@ COPY . .
 
 # Build a fully-static binary. -trimpath drops local filesystem paths
 # from the binary so distinct build hosts produce identical bytes;
-# -ldflags "-s -w" strips the symbol table + DWARF (~30% size cut).
-#
-# VERSION / COMMIT build-args are accepted for forward compatibility,
-# but main.serverVersion is currently a `const` so -ldflags -X has no
-# effect; promote to `var` once we want to inject build info at link
-# time.
+# -ldflags "-s -w" strips the symbol table + DWARF (~30% size cut);
+# -X main.serverVersion / main.commit inject build provenance, surfaced
+# at startup logs and via /api/v1/info.
 ARG VERSION=dev
 ARG COMMIT=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -52,7 +49,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     GOARCH=$(go env GOARCH) \
     go build \
         -trimpath \
-        -ldflags="-s -w" \
+        -ldflags="-s -w -X main.serverVersion=${VERSION} -X main.commit=${COMMIT}" \
         -o /out/synctuaryd \
         ./cmd/synctuaryd
 

@@ -54,10 +54,22 @@ import (
 	"github.com/synctuary/synctuary-server/pkg/config"
 )
 
-// protocolVersion / serverVersion are advertised via /api/v1/info.
-const (
-	protocolVersion = "0.2.3"
-	serverVersion   = "0.4.0"
+// protocolVersion is the wire spec the server implements. It's a
+// hard property of the codebase (ABI), so it stays a const — never
+// override at link time.
+const protocolVersion = "0.2.3"
+
+// serverVersion and commit are advertised via /api/v1/info and are
+// overridable at link time via:
+//
+//	go build -ldflags="-X main.serverVersion=0.4.1 -X main.commit=$(git rev-parse HEAD)"
+//
+// Release builds set these from CI; bare `go build` falls back to the
+// compiled-in defaults below ("dev" + "unknown") which is also what
+// developers see during day-to-day work.
+var (
+	serverVersion = "0.4.0-dev"
+	commit        = "unknown"
 )
 
 func main() {
@@ -73,6 +85,9 @@ func main() {
 	logger := newLogger(cfg.Log)
 	slog.SetDefault(logger)
 	logger.Info("starting synctuaryd",
+		"version", serverVersion,
+		"commit", commit,
+		"protocol", protocolVersion,
 		"addr", cfg.Server.Addr,
 		"storage_root", cfg.Storage.RootPath,
 		"transport_profile", cfg.TransportProfile(),
@@ -184,6 +199,7 @@ func main() {
 		TLSFingerprint:   tlsFingerprint,
 		ServerVersion:    serverVersion,
 		ProtocolVersion:  protocolVersion,
+		Commit:           commit,
 		Capabilities: map[string]bool{
 			"range_download":   true,
 			"resumable_upload": true,
