@@ -16,6 +16,31 @@ All three result in the same wire-protocol behaviour. Pick whichever fits how yo
 
 Quickest path. Spin up the server in two minutes; tear it down with `docker compose down`.
 
+### Image source
+
+The packaged Compose file builds locally by default. For a real deployment, **switch to the published image**:
+
+```yaml
+# In synctuary-server/deploy/docker-compose.yml — comment out `build:`
+# and uncomment the `image:` line below the local build block:
+image: ghcr.io/yuttan/synctuary:latest
+```
+
+Tag conventions on the registry:
+
+| Tag | Meaning |
+|:---|:---|
+| `latest` | Latest stable release |
+| `0.4.0` / `0.4` / `0` | Exact / minor / major version pins |
+| `main` | Tip of the main branch (bleeding edge, single-arch amd64) |
+| `sha-abc1234` | Immutable per-commit pin |
+
+Multi-arch (`linux/amd64` + `linux/arm64`) is built only on release tag pushes; the `main` and `sha-*` tags are amd64-only to save CI time. Pull on a Raspberry Pi 4/5: ✅ supported via release tags.
+
+```sh
+docker pull ghcr.io/yuttan/synctuary:latest
+```
+
 ### Setup
 
 ```sh

@@ -15,14 +15,33 @@
 
 services:
   synctuary:
-    # Replace with `image: ghcr.io/yuttan/synctuary:0.4.0` once a
-    # release tag exists; for now build from local context.
+    # Three image-source options:
+    #
+    #   A. Published release (recommended): comment-out the `build:`
+    #      block and set `image:` to a tag from GHCR. Tags published
+    #      on every release push:
+    #        ghcr.io/yuttan/synctuary:latest      # latest stable
+    #        ghcr.io/yuttan/synctuary:0.4.0       # exact version pin
+    #        ghcr.io/yuttan/synctuary:0.4         # minor pin
+    #        ghcr.io/yuttan/synctuary:0           # major pin
+    #      and on every push to main:
+    #        ghcr.io/yuttan/synctuary:main        # bleeding edge
+    #        ghcr.io/yuttan/synctuary:sha-<7>     # immutable per-commit
+    #
+    #   B. Local build (default below): handy when iterating on the
+    #      Dockerfile or testing an unreleased branch.
+    #
+    #   C. Bring-your-own image (e.g., a private mirror of GHCR for
+    #      air-gapped LANs): set `image:` to whatever your registry
+    #      serves and drop the `build:` block.
+    #
     build:
       context: ..
       dockerfile: Dockerfile
       args:
         VERSION: dev
     image: synctuary-server:local
+    # image: ghcr.io/yuttan/synctuary:latest    # ← swap to this in production
 
     container_name: synctuary
 
