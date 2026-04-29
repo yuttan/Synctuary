@@ -14,14 +14,10 @@ name: Android CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'synctuary-android/**'
-      - '.github/**'
   pull_request:
     branches: [main]
-    paths:
-      - 'synctuary-android/**'
-      - '.github/**'
+# No `paths:` filter — see comment in go.yml. Required status checks
+# must register on every PR; path-filter exclusion blocks merge.
 
 permissions:
   contents: read
