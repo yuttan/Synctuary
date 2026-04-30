@@ -36,10 +36,13 @@ object NetworkModule {
      *                  relative-path resolution works.
      *  @param fingerprint  optional SHA-256(DER cert) to pin. When `null`,
      *                      the system trust store is used unmodified.
+     *  @param authInterceptor  optional [AuthInterceptor] for Bearer auth
+     *                          on §6+ endpoints.
      */
     fun create(
         baseUrl: String,
         fingerprint: ByteArray? = null,
+        authInterceptor: AuthInterceptor? = null,
     ): SynctuaryApi {
         val rootUrl = baseUrl.trimEnd('/') + "/"
         val parsed = rootUrl.toHttpUrl()
@@ -47,8 +50,6 @@ object NetworkModule {
         val client = OkHttpClient.Builder().apply {
             connectTimeout(15, TimeUnit.SECONDS)
             readTimeout(60, TimeUnit.SECONDS)
-            // §6.3 chunk uploads can take minutes for large files; the
-            // upload code path will install its own per-call timeout.
             writeTimeout(5, TimeUnit.MINUTES)
 
             if (fingerprint != null) {
@@ -60,6 +61,10 @@ object NetworkModule {
                         .add(parsed.host, "sha256/" + base64Std(fingerprint))
                         .build(),
                 )
+            }
+
+            if (authInterceptor != null) {
+                addInterceptor(authInterceptor)
             }
 
             if (BuildConfig.DEBUG) {
