@@ -92,13 +92,15 @@ Synctuary/
             │   ├── AndroidManifest.xml
             │   ├── java/io/synctuary/android/
             │   │   ├── SynctuaryApp.kt              ← Application
-            │   │   ├── MainActivity.kt              ← Compose entry
+            │   │   ├── MainActivity.kt              ← NavHost entry (Phase 2.2)
             │   │   ├── crypto/                      ← B64Url, Bip39, Hkdf, Ed25519, KeyDerivation
             │   │   ├── data/
             │   │   │   ├── api/                     ← Retrofit + Moshi + OkHttp
             │   │   │   ├── secret/SecretStore.kt    ← EncryptedSharedPreferences
             │   │   │   └── PairingRepository.kt     ← §4 orchestration
             │   │   └── ui/
+            │   │       ├── navigation/NavRoutes.kt  ← route sealed class
+            │   │       ├── onboarding/              ← screens 1-3 + OnboardingViewModel
             │   │       ├── theme/                   ← Color / Theme / Type
             │   │       └── debug/PairingTestScreen.kt
             │   ├── res/                             ← drawable, mipmap, values, xml
@@ -249,24 +251,24 @@ seed comparison. Real Trezor vector for 0x80×32: last word is `bless`.
 
 ## 7. Phase status (what's done, what's next)
 
-### Done (v0.4 ＝ 2026-04-30)
+### Done (v0.4 ＝ 2026-05-01)
 - ✅ Server: full PROTOCOL §1-§9 implementation, including §8 favorites
 - ✅ Server: container image published to GHCR (`ghcr.io/yuttan/synctuary`, multi-arch)
 - ✅ Server: deploy artifacts (Dockerfile / docker-compose.yml / systemd unit / TLS guide)
 - ✅ Server: build provenance via `-ldflags -X main.serverVersion=... -X main.commit=...`
 - ✅ Android: skeleton (Compose / M3 dark / brand) — Phase 1
 - ✅ Android: crypto (BC Ed25519, HKDF, BIP-39) + network (Retrofit) + storage (EncryptedSharedPreferences) + PairingRepository — Phase 2
+- ✅ Android: onboarding UI (mockup screens 1-3) + NavHost + OnboardingViewModel — Phase 2.2 (PR #11)
 - ✅ CI: 5 required checks, branch protection ruleset, GHCR publish on tags
 - ✅ Android UI mockups: 14 screens of Material 3 dark
 - ✅ Documentation: SPEC.md, PROTOCOL.md v0.2.3, deploy/README.md, this file
 
 ### Next up (priority order)
-1. **Android Phase 2.2** — polished onboarding UI (mockup screens 1-3) on top of the existing PairingRepository. NavHost. ViewModels.
-2. **Android Phase 3** — file browser screen (PROTOCOL §6), bearer-auth OkHttp interceptor, long-press menu (mockup screen 4 + 8).
-3. **Android Phase 4** — upload progress (foreground service?), download to local, streaming preview (ExoPlayer + Coil).
-4. **Android Phase 5** — favorites with hidden-list flow + BiometricPrompt gate (mockup screens 11-14).
-5. **Android Phase 6** — devices / settings / left-hand mode toggle (mockup screens 6-7).
-6. **Server v0.5** — sync_copy fallback benchmarks; possibly stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+1. **Android Phase 3** — file browser screen (PROTOCOL §6), bearer-auth OkHttp interceptor, long-press menu (mockup screen 4 + 8).
+2. **Android Phase 4** — upload progress (foreground service?), download to local, streaming preview (ExoPlayer + Coil).
+3. **Android Phase 5** — favorites with hidden-list flow + BiometricPrompt gate (mockup screens 11-14).
+4. **Android Phase 6** — devices / settings / left-hand mode toggle (mockup screens 6-7).
+5. **Server v0.5** — sync_copy fallback benchmarks; possibly stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
