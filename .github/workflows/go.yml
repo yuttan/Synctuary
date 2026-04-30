@@ -13,14 +13,13 @@ name: Go CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'synctuary-server/**'
-      - '.github/**'
   pull_request:
     branches: [main]
-    paths:
-      - 'synctuary-server/**'
-      - '.github/**'
+# No `paths:` filter — every required status check must report on every
+# PR or the branch ruleset blocks merge. Saving CI minutes via a path
+# filter is incompatible with the "required check" gate when the PR
+# doesn't touch this workflow's domain. CI minutes are cheap; merge
+# friction is not.
 
 # The workflow only ever reads from the repo and never writes back.
 permissions:
