@@ -1,5 +1,7 @@
 package io.synctuary.android.data
 
+import android.content.ContentResolver
+import android.net.Uri
 import io.synctuary.android.data.api.AuthInterceptor
 import io.synctuary.android.data.api.NetworkModule
 import io.synctuary.android.data.api.SynctuaryApi
@@ -8,6 +10,7 @@ import io.synctuary.android.data.api.dto.MoveRequest
 import io.synctuary.android.data.secret.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class FileRepository(private val secretStore: SecretStore) {
 
@@ -40,6 +43,20 @@ class FileRepository(private val secretStore: SecretStore) {
                 throw FileOperationException("move failed: ${resp.code()}")
             }
         }
+
+    suspend fun downloadFile(
+        remotePath: String,
+        destFile: File,
+        onProgress: (received: Long, total: Long?) -> Unit,
+    ): File = DownloadManager(authenticatedApi()).download(remotePath, destFile, onProgress)
+
+    suspend fun uploadFile(
+        contentResolver: ContentResolver,
+        uri: Uri,
+        remotePath: String,
+        overwrite: Boolean = false,
+        onProgress: (uploaded: Long, total: Long) -> Unit,
+    ) = UploadManager(authenticatedApi()).upload(contentResolver, uri, remotePath, overwrite, onProgress)
 }
 
 class FileOperationException(message: String, cause: Throwable? = null) :

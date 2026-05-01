@@ -1,9 +1,13 @@
 package io.synctuary.android.ui.files
 
 import android.app.Application
+import android.net.Uri
+import android.os.Environment
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.synctuary.android.data.FileRepository
+import io.synctuary.android.data.TransferState
 import io.synctuary.android.data.api.dto.FileEntry
 import io.synctuary.android.data.secret.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 class FileBrowserViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -97,9 +102,81 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(error = null) }
     }
 
+    fun startDownload(entry: FileEntry) {
+        val app = getApplication<Application>()
+        val name = entry.name
+        val remotePath = buildEntryPath(name)
+        val destDir = app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: app.filesDir
+        val destFile = File(destDir, name)
+
+        _uiState.update { it.copy(downloadState = TransferState.Running(name, 0L, entry.size)) }
+        viewModelScope.launch {
+            try {
+                repo.downloadFile(remotePath, destFile) { received, total ->
+                    _uiState.update {
+                        it.copy(downloadState = TransferState.Running(name, received, total))
+                    }
+                }
+                _uiState.update {
+                    it.copy(downloadState = TransferState.Done(name, destFile.absolutePath))
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(downloadState = TransferState.Failed(name, e.message ?: "Download failed"))
+                }
+            }
+        }
+    }
+
+    fun startUpload(uri: Uri) {
+        if (_uiState.value.uploadState is TransferState.Running) return
+
+        val app = getApplication<Application>()
+        val fileName = resolveDisplayName(uri)
+        val remotePath = buildRemoteUploadPath(fileName)
+
+        _uiState.update { it.copy(uploadState = TransferState.Running(fileName, 0L, null)) }
+        viewModelScope.launch {
+            try {
+                repo.uploadFile(app.contentResolver, uri, remotePath) { uploaded, total ->
+                    _uiState.update {
+                        it.copy(uploadState = TransferState.Running(fileName, uploaded, total))
+                    }
+                }
+                _uiState.update {
+                    it.copy(uploadState = TransferState.Done(fileName, remotePath))
+                }
+                loadDirectory(_uiState.value.currentPath)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(uploadState = TransferState.Failed(fileName, e.message ?: "Upload failed"))
+                }
+            }
+        }
+    }
+
+    fun dismissTransferFeedback() {
+        _uiState.update {
+            it.copy(downloadState = TransferState.Idle, uploadState = TransferState.Idle)
+        }
+    }
+
     private fun buildEntryPath(name: String): String {
         val current = _uiState.value.currentPath
         return if (current == "/") "/$name" else "$current/$name"
+    }
+
+    private fun buildRemoteUploadPath(fileName: String): String {
+        val current = _uiState.value.currentPath
+        return if (current == "/") "/$fileName" else "$current/$fileName"
+    }
+
+    private fun resolveDisplayName(uri: Uri): String {
+        val cr = getApplication<Application>().contentResolver
+        return cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            ?: uri.lastPathSegment
+            ?: "file"
     }
 }
 
@@ -109,4 +186,6 @@ data class FileBrowserUiState(
     val loading: Boolean = false,
     val error: String? = null,
     val selectedEntry: FileEntry? = null,
+    val downloadState: TransferState = TransferState.Idle,
+    val uploadState: TransferState = TransferState.Idle,
 )
