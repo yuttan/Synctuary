@@ -1,5 +1,7 @@
 package io.synctuary.android.ui.files
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,14 +38,19 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.data.TransferState
 import io.synctuary.android.data.api.dto.FileEntry
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +68,40 @@ import java.util.Locale
 @Composable
 fun FileBrowserScreen(viewModel: FileBrowserViewModel) {
     val state by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val uploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let { viewModel.startUpload(it) }
+    }
+
+    LaunchedEffect(state.downloadState) {
+        when (val ds = state.downloadState) {
+            is TransferState.Done -> {
+                snackbarHostState.showSnackbar("Downloaded: ${ds.fileName}")
+                viewModel.dismissTransferFeedback()
+            }
+            is TransferState.Failed -> {
+                snackbarHostState.showSnackbar("Download failed: ${ds.message}")
+                viewModel.dismissTransferFeedback()
+            }
+            else -> {}
+        }
+    }
+    LaunchedEffect(state.uploadState) {
+        when (val us = state.uploadState) {
+            is TransferState.Done -> {
+                snackbarHostState.showSnackbar("Uploaded: ${us.fileName}")
+                viewModel.dismissTransferFeedback()
+            }
+            is TransferState.Failed -> {
+                snackbarHostState.showSnackbar("Upload failed: ${us.message}")
+                viewModel.dismissTransferFeedback()
+            }
+            else -> {}
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -80,24 +122,26 @@ fun FileBrowserScreen(viewModel: FileBrowserViewModel) {
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { /* upload — Phase 4 */ },
+                onClick = { uploadLauncher.launch(arrayOf("*/*")) },
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "Upload")
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            // Breadcrumbs
             BreadcrumbBar(
                 path = state.currentPath,
                 onNavigate = { viewModel.navigateToBreadcrumb(it) },
             )
+
+            TransferBanner(downloadState = state.downloadState, uploadState = state.uploadState)
 
             when {
                 state.loading -> {
@@ -148,7 +192,6 @@ fun FileBrowserScreen(viewModel: FileBrowserViewModel) {
             }
         }
 
-        // Bottom sheet
         state.selectedEntry?.let { entry ->
             FileActionSheet(
                 entry = entry,
@@ -162,8 +205,43 @@ fun FileBrowserScreen(viewModel: FileBrowserViewModel) {
                     viewModel.renameFile(entry, newName)
                     viewModel.selectForAction(null)
                 },
+                onDownload = {
+                    viewModel.startDownload(entry)
+                    viewModel.selectForAction(null)
+                },
             )
         }
+    }
+}
+
+@Composable
+private fun TransferBanner(downloadState: TransferState, uploadState: TransferState) {
+    val running = (downloadState as? TransferState.Running)
+        ?: (uploadState as? TransferState.Running)
+        ?: return
+
+    val label = if (downloadState is TransferState.Running) {
+        "Downloading ${running.fileName}…"
+    } else {
+        "Uploading ${running.fileName}…"
+    }
+    val fraction = running.progressFraction
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (fraction >= 0f) {
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
     }
 }
 
