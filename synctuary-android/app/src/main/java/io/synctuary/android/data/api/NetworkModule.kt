@@ -39,15 +39,15 @@ object NetworkModule {
      *  @param authInterceptor  optional [AuthInterceptor] for Bearer auth
      *                          on §6+ endpoints.
      */
-    fun create(
+    fun createOkHttpClient(
         baseUrl: String,
         fingerprint: ByteArray? = null,
         authInterceptor: AuthInterceptor? = null,
-    ): SynctuaryApi {
+    ): OkHttpClient {
         val rootUrl = baseUrl.trimEnd('/') + "/"
         val parsed = rootUrl.toHttpUrl()
 
-        val client = OkHttpClient.Builder().apply {
+        return OkHttpClient.Builder().apply {
             connectTimeout(15, TimeUnit.SECONDS)
             readTimeout(60, TimeUnit.SECONDS)
             writeTimeout(5, TimeUnit.MINUTES)
@@ -74,6 +74,15 @@ object NetworkModule {
                 )
             }
         }.build()
+    }
+
+    fun create(
+        baseUrl: String,
+        fingerprint: ByteArray? = null,
+        authInterceptor: AuthInterceptor? = null,
+    ): SynctuaryApi {
+        val rootUrl = baseUrl.trimEnd('/') + "/"
+        val client = createOkHttpClient(baseUrl, fingerprint, authInterceptor)
 
         val moshi = Moshi.Builder().build()
         val retrofit = Retrofit.Builder()

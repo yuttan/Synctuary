@@ -66,7 +66,10 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FileBrowserScreen(viewModel: FileBrowserViewModel) {
+fun FileBrowserScreen(
+    viewModel: FileBrowserViewModel,
+    onPreview: (FileEntry) -> Unit = {},
+) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -182,6 +185,8 @@ fun FileBrowserScreen(viewModel: FileBrowserViewModel) {
                         onTap = { entry ->
                             if (entry.type == "dir") {
                                 viewModel.navigateInto(entry.name)
+                            } else {
+                                onPreview(entry)
                             }
                         },
                         onLongPress = { entry ->

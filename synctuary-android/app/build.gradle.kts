@@ -86,6 +86,10 @@ dependencies {
     implementation(libs.bundles.network)
     ksp(libs.moshi.kotlin.codegen)
 
+    // Media preview: Coil for images, ExoPlayer for video/audio
+    implementation(libs.coil.compose)
+    implementation(libs.bundles.media3)
+
     // Coroutines
     implementation(libs.bundles.coroutines)
 
