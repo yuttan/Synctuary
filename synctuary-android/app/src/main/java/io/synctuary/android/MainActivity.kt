@@ -20,6 +20,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import io.synctuary.android.ui.debug.PairingTestScreen
 import io.synctuary.android.ui.files.FileBrowserScreen
 import io.synctuary.android.ui.files.FileBrowserViewModel
@@ -29,6 +31,9 @@ import io.synctuary.android.ui.onboarding.MnemonicScreen
 import io.synctuary.android.ui.onboarding.OnboardingViewModel
 import io.synctuary.android.ui.onboarding.PairingProgressScreen
 import io.synctuary.android.ui.onboarding.ServerUrlScreen
+import io.synctuary.android.ui.preview.ImagePreviewScreen
+import io.synctuary.android.ui.preview.MediaPreviewScreen
+import io.synctuary.android.ui.preview.PreviewViewModel
 import io.synctuary.android.ui.theme.SynctuaryTheme
 
 class MainActivity : ComponentActivity() {
@@ -60,6 +65,7 @@ private fun SynctuaryNavHost() {
     val navController = rememberNavController()
     val onboardingVm: OnboardingViewModel = viewModel()
     val fileBrowserVm: FileBrowserViewModel = viewModel()
+    val previewVm: PreviewViewModel = viewModel()
 
     val startRoute = if (onboardingVm.isPaired()) {
         NavRoute.TabFiles.route
@@ -121,7 +127,20 @@ private fun SynctuaryNavHost() {
 
             // Main tabs
             composable(NavRoute.TabFiles.route) {
-                FileBrowserScreen(viewModel = fileBrowserVm)
+                FileBrowserScreen(
+                    viewModel = fileBrowserVm,
+                    onPreview = { entry ->
+                        val current = fileBrowserVm.uiState.value.currentPath
+                        val fullPath = if (current == "/") "/${entry.name}" else "$current/${entry.name}"
+                        val mime = entry.mime_type ?: ""
+                        when {
+                            mime.startsWith("image/") ->
+                                navController.navigate(NavRoute.ImagePreview.createRoute(fullPath))
+                            mime.startsWith("video/") || mime.startsWith("audio/") ->
+                                navController.navigate(NavRoute.MediaPreview.createRoute(fullPath))
+                        }
+                    },
+                )
             }
 
             composable(NavRoute.TabSettings.route) {
@@ -134,6 +153,31 @@ private fun SynctuaryNavHost() {
 
             composable(NavRoute.TabFavorites.route) {
                 TabPlaceholder("Favorites")
+            }
+
+            // Preview (full-screen, no bottom nav)
+            composable(
+                route = NavRoute.ImagePreview.route,
+                arguments = listOf(navArgument("path") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val path = backStackEntry.arguments?.getString("path") ?: return@composable
+                ImagePreviewScreen(
+                    remotePath = path,
+                    viewModel = previewVm,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+
+            composable(
+                route = NavRoute.MediaPreview.route,
+                arguments = listOf(navArgument("path") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val path = backStackEntry.arguments?.getString("path") ?: return@composable
+                MediaPreviewScreen(
+                    remotePath = path,
+                    viewModel = previewVm,
+                    onBack = { navController.popBackStack() },
+                )
             }
 
             // Debug
