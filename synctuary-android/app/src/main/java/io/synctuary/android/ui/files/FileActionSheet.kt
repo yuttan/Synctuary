@@ -50,6 +50,7 @@ fun FileActionSheet(
     onDelete: () -> Unit,
     onRename: (String) -> Unit,
     onDownload: () -> Unit,
+    onAddToFavorites: () -> Unit,
 ) {
     var showRenameDialog by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
@@ -96,7 +97,7 @@ fun FileActionSheet(
 
         // Actions
         SheetAction(Icons.Filled.Download, "Download") { onDownload() }
-        SheetAction(Icons.Filled.StarOutline, "Add to Favorites...") { /* Phase 5 */ }
+        SheetAction(Icons.Filled.StarOutline, "Add to Favorites...") { onAddToFavorites() }
         SheetAction(Icons.Filled.Edit, "Rename") { showRenameDialog = true }
         SheetAction(Icons.Filled.SwapHoriz, "Move") { /* future */ }
         SheetAction(Icons.Filled.Info, "Details") { /* future */ }

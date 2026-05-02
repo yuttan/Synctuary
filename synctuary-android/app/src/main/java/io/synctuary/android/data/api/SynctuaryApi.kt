@@ -1,9 +1,16 @@
 package io.synctuary.android.data.api
 
+import io.synctuary.android.data.api.dto.AddFavoriteItemRequest
+import io.synctuary.android.data.api.dto.CreateFavoriteRequest
+import io.synctuary.android.data.api.dto.FavoriteItemDto
+import io.synctuary.android.data.api.dto.FavoriteListDetailDto
+import io.synctuary.android.data.api.dto.FavoriteListDto
+import io.synctuary.android.data.api.dto.FavoriteListsResponse
 import io.synctuary.android.data.api.dto.FileListResponse
 import io.synctuary.android.data.api.dto.InfoDto
 import io.synctuary.android.data.api.dto.MoveRequest
 import io.synctuary.android.data.api.dto.NonceDto
+import io.synctuary.android.data.api.dto.PatchFavoriteRequest
 import io.synctuary.android.data.api.dto.RegisterRequest
 import io.synctuary.android.data.api.dto.RegisterResponse
 import io.synctuary.android.data.api.dto.UploadInitRequest
@@ -16,6 +23,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -72,4 +80,38 @@ interface SynctuaryApi {
 
     @DELETE("api/v1/files/upload/{id}")
     suspend fun uploadAbort(@Path("id") uploadId: String): Response<Unit>
+
+    // ── Favorites (§8) — require Bearer auth ───────────────────────
+
+    @GET("api/v1/favorites")
+    suspend fun favoritesList(
+        @Query("include_hidden") includeHidden: Boolean = false,
+    ): FavoriteListsResponse
+
+    @GET("api/v1/favorites/{id}")
+    suspend fun favoritesGet(@Path("id") id: String): FavoriteListDetailDto
+
+    @POST("api/v1/favorites")
+    suspend fun favoritesCreate(@Body body: CreateFavoriteRequest): FavoriteListDto
+
+    @PATCH("api/v1/favorites/{id}")
+    suspend fun favoritesPatch(
+        @Path("id") id: String,
+        @Body body: PatchFavoriteRequest,
+    ): FavoriteListDto
+
+    @DELETE("api/v1/favorites/{id}")
+    suspend fun favoritesDelete(@Path("id") id: String): Response<Unit>
+
+    @POST("api/v1/favorites/{id}/items")
+    suspend fun favoritesItemAdd(
+        @Path("id") id: String,
+        @Body body: AddFavoriteItemRequest,
+    ): FavoriteItemDto
+
+    @DELETE("api/v1/favorites/{id}/items")
+    suspend fun favoritesItemRemove(
+        @Path("id") id: String,
+        @Query("path") path: String,
+    ): Response<Unit>
 }

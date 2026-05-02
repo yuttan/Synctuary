@@ -1,7 +1,6 @@
 package io.synctuary.android
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
@@ -12,17 +11,31 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import io.synctuary.android.data.secret.SecretStore
 import io.synctuary.android.ui.debug.PairingTestScreen
+import io.synctuary.android.ui.favorites.AddToFavoritesDialog
+import io.synctuary.android.ui.favorites.BiometricHelper
+import io.synctuary.android.ui.favorites.FavoritesScreen
+import io.synctuary.android.ui.favorites.FavoritesViewModel
 import io.synctuary.android.ui.files.FileBrowserScreen
 import io.synctuary.android.ui.files.FileBrowserViewModel
 import io.synctuary.android.ui.navigation.BottomNavBar
@@ -36,7 +49,7 @@ import io.synctuary.android.ui.preview.MediaPreviewScreen
 import io.synctuary.android.ui.preview.PreviewViewModel
 import io.synctuary.android.ui.theme.SynctuaryTheme
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -66,6 +79,23 @@ private fun SynctuaryNavHost() {
     val onboardingVm: OnboardingViewModel = viewModel()
     val fileBrowserVm: FileBrowserViewModel = viewModel()
     val previewVm: PreviewViewModel = viewModel()
+    val favoritesVm: FavoritesViewModel = viewModel()
+
+    val context = LocalContext.current
+    val activity = context as? FragmentActivity
+
+    var favDialogFile by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                favoritesVm.onAppBackgrounded()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val startRoute = if (onboardingVm.isPaired()) {
         NavRoute.TabFiles.route
@@ -140,6 +170,9 @@ private fun SynctuaryNavHost() {
                                 navController.navigate(NavRoute.MediaPreview.createRoute(fullPath))
                         }
                     },
+                    onAddToFavorites = { entry, path ->
+                        favDialogFile = Pair(entry.name, path)
+                    },
                 )
             }
 
@@ -152,7 +185,19 @@ private fun SynctuaryNavHost() {
             }
 
             composable(NavRoute.TabFavorites.route) {
-                TabPlaceholder("Favorites")
+                FavoritesScreen(
+                    viewModel = favoritesVm,
+                    onRequestBiometric = {
+                        activity?.let { act ->
+                            BiometricHelper.prompt(
+                                activity = act,
+                                onSuccess = { favoritesVm.onHiddenUnlocked() },
+                                onError = { },
+                            )
+                        }
+                    },
+                    onListTap = { },
+                )
             }
 
             // Preview (full-screen, no bottom nav)
@@ -185,6 +230,17 @@ private fun SynctuaryNavHost() {
                 PairingTestScreen()
             }
         }
+    }
+
+    favDialogFile?.let { (fileName, path) ->
+        val secretStore = remember { SecretStore.create(context) }
+        AddToFavoritesDialog(
+            fileName = fileName,
+            filePath = path,
+            secretStore = secretStore,
+            onDismiss = { favDialogFile = null },
+            onDone = { favDialogFile = null },
+        )
     }
 }
 
