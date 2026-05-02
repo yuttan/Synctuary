@@ -102,6 +102,34 @@ class FileBrowserViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(error = null) }
     }
 
+    fun toggleSearch() {
+        _uiState.update {
+            if (it.searchActive) it.copy(searchActive = false, searchQuery = "")
+            else it.copy(searchActive = true)
+        }
+    }
+
+    fun setSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+    }
+
+    fun moveFile(entry: FileEntry, destinationDir: String) {
+        val from = buildEntryPath(entry.name)
+        val to = if (destinationDir == "/") "/${entry.name}" else "$destinationDir/${entry.name}"
+        viewModelScope.launch {
+            try {
+                repo.moveFile(from, to)
+                loadDirectory(_uiState.value.currentPath)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Move failed: ${e.message}") }
+            }
+        }
+    }
+
+    suspend fun listDirectory(path: String): List<FileEntry> {
+        return repo.listFiles(path)
+    }
+
     fun startDownload(entry: FileEntry) {
         val app = getApplication<Application>()
         val name = entry.name
@@ -188,4 +216,10 @@ data class FileBrowserUiState(
     val selectedEntry: FileEntry? = null,
     val downloadState: TransferState = TransferState.Idle,
     val uploadState: TransferState = TransferState.Idle,
-)
+    val searchActive: Boolean = false,
+    val searchQuery: String = "",
+) {
+    val filteredEntries: List<FileEntry>
+        get() = if (searchQuery.isBlank()) entries
+        else entries.filter { it.name.contains(searchQuery, ignoreCase = true) }
+}

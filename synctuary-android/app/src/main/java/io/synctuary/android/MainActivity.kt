@@ -10,6 +10,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import io.synctuary.android.ui.devices.DevicesScreen
 import io.synctuary.android.ui.devices.DevicesViewModel
 import io.synctuary.android.ui.favorites.AddToFavoritesDialog
 import io.synctuary.android.ui.favorites.BiometricHelper
+import io.synctuary.android.ui.favorites.FavoriteListDetailScreen
 import io.synctuary.android.ui.favorites.FavoritesScreen
 import io.synctuary.android.ui.favorites.FavoritesViewModel
 import io.synctuary.android.ui.files.FileBrowserScreen
@@ -106,6 +108,9 @@ private fun SynctuaryNavHost() {
         NavRoute.ServerUrl.route
     }
 
+    val settingsState by settingsVm.uiState.collectAsState()
+    val leftHandMode = settingsState.leftHandMode
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val showBottomNav = currentRoute in tabRoutes
@@ -122,6 +127,7 @@ private fun SynctuaryNavHost() {
                             restoreState = true
                         }
                     },
+                    leftHandMode = leftHandMode,
                 )
             }
         },
@@ -162,6 +168,7 @@ private fun SynctuaryNavHost() {
             composable(NavRoute.TabFiles.route) {
                 FileBrowserScreen(
                     viewModel = fileBrowserVm,
+                    leftHandMode = leftHandMode,
                     onPreview = { entry ->
                         val current = fileBrowserVm.uiState.value.currentPath
                         val fullPath = if (current == "/") "/${entry.name}" else "$current/${entry.name}"
@@ -206,7 +213,27 @@ private fun SynctuaryNavHost() {
                             )
                         }
                     },
-                    onListTap = { },
+                    onListTap = { list ->
+                        navController.navigate(NavRoute.FavoriteListDetail.createRoute(list.id, list.name))
+                    },
+                )
+            }
+
+            // Favorites detail (full-screen, no bottom nav)
+            composable(
+                route = NavRoute.FavoriteListDetail.route,
+                arguments = listOf(
+                    navArgument("id") { type = NavType.StringType },
+                    navArgument("name") { type = NavType.StringType },
+                ),
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getString("id") ?: return@composable
+                val name = backStackEntry.arguments?.getString("name") ?: ""
+                FavoriteListDetailScreen(
+                    listId = id,
+                    listName = name,
+                    viewModel = favoritesVm,
+                    onBack = { navController.popBackStack() },
                 )
             }
 
