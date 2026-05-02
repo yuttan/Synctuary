@@ -69,6 +69,7 @@ import java.util.Locale
 fun FileBrowserScreen(
     viewModel: FileBrowserViewModel,
     onPreview: (FileEntry) -> Unit = {},
+    onAddToFavorites: ((entry: FileEntry, path: String) -> Unit)? = null,
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -213,6 +214,12 @@ fun FileBrowserScreen(
                 onDownload = {
                     viewModel.startDownload(entry)
                     viewModel.selectForAction(null)
+                },
+                onAddToFavorites = {
+                    val current = state.currentPath
+                    val fullPath = if (current == "/") "/${entry.name}" else "$current/${entry.name}"
+                    viewModel.selectForAction(null)
+                    onAddToFavorites?.invoke(entry, fullPath)
                 },
             )
         }
