@@ -15,9 +15,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class FavoritesViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val repo = FavoritesRepository(SecretStore.create(application))
+class FavoritesViewModel @JvmOverloads constructor(
+    application: Application,
+    private val repo: FavoritesRepository = FavoritesRepository(SecretStore.create(application)),
+) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(FavoritesUiState())
     val uiState: StateFlow<FavoritesUiState> = _uiState.asStateFlow()
