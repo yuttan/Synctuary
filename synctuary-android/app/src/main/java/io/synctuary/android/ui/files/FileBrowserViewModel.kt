@@ -17,10 +17,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
-class FileBrowserViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val secretStore = SecretStore.create(application)
-    private val repo = FileRepository(secretStore)
+class FileBrowserViewModel @JvmOverloads constructor(
+    application: Application,
+    private val repo: FileRepository = FileRepository(SecretStore.create(application)),
+) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(FileBrowserUiState())
     val uiState: StateFlow<FileBrowserUiState> = _uiState.asStateFlow()
