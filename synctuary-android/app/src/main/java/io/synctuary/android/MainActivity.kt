@@ -3,20 +3,17 @@ package io.synctuary.android
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
@@ -32,6 +29,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.synctuary.android.data.secret.SecretStore
 import io.synctuary.android.ui.debug.PairingTestScreen
+import io.synctuary.android.ui.devices.DevicesScreen
+import io.synctuary.android.ui.devices.DevicesViewModel
 import io.synctuary.android.ui.favorites.AddToFavoritesDialog
 import io.synctuary.android.ui.favorites.BiometricHelper
 import io.synctuary.android.ui.favorites.FavoritesScreen
@@ -47,6 +46,8 @@ import io.synctuary.android.ui.onboarding.ServerUrlScreen
 import io.synctuary.android.ui.preview.ImagePreviewScreen
 import io.synctuary.android.ui.preview.MediaPreviewScreen
 import io.synctuary.android.ui.preview.PreviewViewModel
+import io.synctuary.android.ui.settings.SettingsScreen
+import io.synctuary.android.ui.settings.SettingsViewModel
 import io.synctuary.android.ui.theme.SynctuaryTheme
 
 class MainActivity : FragmentActivity() {
@@ -80,6 +81,8 @@ private fun SynctuaryNavHost() {
     val fileBrowserVm: FileBrowserViewModel = viewModel()
     val previewVm: PreviewViewModel = viewModel()
     val favoritesVm: FavoritesViewModel = viewModel()
+    val devicesVm: DevicesViewModel = viewModel()
+    val settingsVm: SettingsViewModel = viewModel()
 
     val context = LocalContext.current
     val activity = context as? FragmentActivity
@@ -177,11 +180,18 @@ private fun SynctuaryNavHost() {
             }
 
             composable(NavRoute.TabSettings.route) {
-                TabPlaceholder("Settings")
+                SettingsScreen(
+                    viewModel = settingsVm,
+                    onUnpaired = {
+                        navController.navigate(NavRoute.ServerUrl.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                )
             }
 
             composable(NavRoute.TabDevices.route) {
-                TabPlaceholder("Devices")
+                DevicesScreen(viewModel = devicesVm)
             }
 
             composable(NavRoute.TabFavorites.route) {
@@ -244,16 +254,3 @@ private fun SynctuaryNavHost() {
     }
 }
 
-@Composable
-private fun TabPlaceholder(name: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "$name — coming soon",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}

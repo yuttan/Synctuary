@@ -1,6 +1,7 @@
 package io.synctuary.android.data.api
 
 import io.synctuary.android.data.api.dto.AddFavoriteItemRequest
+import io.synctuary.android.data.api.dto.DevicesResponse
 import io.synctuary.android.data.api.dto.CreateFavoriteRequest
 import io.synctuary.android.data.api.dto.FavoriteItemDto
 import io.synctuary.android.data.api.dto.FavoriteListDetailDto
@@ -80,6 +81,14 @@ interface SynctuaryApi {
 
     @DELETE("api/v1/files/upload/{id}")
     suspend fun uploadAbort(@Path("id") uploadId: String): Response<Unit>
+
+    // ── Devices (§7) — require Bearer auth ──────────────────────────
+
+    @GET("api/v1/devices")
+    suspend fun devicesList(): DevicesResponse
+
+    @DELETE("api/v1/devices/{id}")
+    suspend fun devicesRevoke(@Path("id") id: String): Response<Unit>
 
     // ── Favorites (§8) — require Bearer auth ───────────────────────
 
