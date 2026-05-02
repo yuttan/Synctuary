@@ -29,9 +29,11 @@ private val tabs = listOf(
 fun BottomNavBar(
     currentRoute: String?,
     onTabSelected: (String) -> Unit,
+    leftHandMode: Boolean = false,
 ) {
+    val ordered = if (leftHandMode) tabs.reversed() else tabs
     NavigationBar {
-        tabs.forEach { tab ->
+        ordered.forEach { tab ->
             NavigationBarItem(
                 selected = currentRoute == tab.route,
                 onClick = { onTabSelected(tab.route) },

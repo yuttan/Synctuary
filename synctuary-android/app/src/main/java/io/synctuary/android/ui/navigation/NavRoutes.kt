@@ -22,6 +22,12 @@ sealed class NavRoute(val route: String) {
             "preview/media?path=${android.net.Uri.encode(path)}"
     }
 
+    // Favorites detail (full-screen, no bottom nav)
+    data object FavoriteListDetail : NavRoute("favorites/detail?id={id}&name={name}") {
+        fun createRoute(id: String, name: String): String =
+            "favorites/detail?id=${android.net.Uri.encode(id)}&name=${android.net.Uri.encode(name)}"
+    }
+
     // Debug
     data object PairingDebug : NavRoute("debug/pairing")
 }

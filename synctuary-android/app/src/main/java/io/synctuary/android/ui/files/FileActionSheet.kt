@@ -51,6 +51,8 @@ fun FileActionSheet(
     onRename: (String) -> Unit,
     onDownload: () -> Unit,
     onAddToFavorites: () -> Unit,
+    onMove: () -> Unit,
+    onDetails: () -> Unit,
 ) {
     var showRenameDialog by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
@@ -99,8 +101,8 @@ fun FileActionSheet(
         SheetAction(Icons.Filled.Download, "Download") { onDownload() }
         SheetAction(Icons.Filled.StarOutline, "Add to Favorites...") { onAddToFavorites() }
         SheetAction(Icons.Filled.Edit, "Rename") { showRenameDialog = true }
-        SheetAction(Icons.Filled.SwapHoriz, "Move") { /* future */ }
-        SheetAction(Icons.Filled.Info, "Details") { /* future */ }
+        SheetAction(Icons.Filled.SwapHoriz, "Move") { onMove() }
+        SheetAction(Icons.Filled.Info, "Details") { onDetails() }
 
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 4.dp),

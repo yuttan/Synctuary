@@ -30,8 +30,11 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -50,7 +53,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.FabPosition
 import io.synctuary.android.data.TransferState
 import io.synctuary.android.data.api.dto.FileEntry
 import java.text.SimpleDateFormat
@@ -70,9 +76,12 @@ fun FileBrowserScreen(
     viewModel: FileBrowserViewModel,
     onPreview: (FileEntry) -> Unit = {},
     onAddToFavorites: ((entry: FileEntry, path: String) -> Unit)? = null,
+    leftHandMode: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    var moveEntry by remember { mutableStateOf<FileEntry?>(null) }
+    var detailsEntry by remember { mutableStateOf<FileEntry?>(null) }
 
     val uploadLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -109,20 +118,45 @@ fun FileBrowserScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Synctuary") },
-                actions = {
-                    IconButton(onClick = { /* search — future */ }) {
-                        Icon(Icons.Filled.Search, contentDescription = "Search")
-                    }
-                    IconButton(onClick = { /* overflow menu — future */ }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                ),
-            )
+            if (state.searchActive) {
+                TopAppBar(
+                    title = {
+                        TextField(
+                            value = state.searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            placeholder = { Text("Search files...") },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.toggleSearch() }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close search")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Synctuary") },
+                    actions = {
+                        IconButton(onClick = { viewModel.toggleSearch() }) {
+                            Icon(Icons.Filled.Search, contentDescription = "Search")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                )
+            }
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -133,6 +167,7 @@ fun FileBrowserScreen(
                 Icon(Icons.Filled.Add, contentDescription = "Upload")
             }
         },
+        floatingActionButtonPosition = if (leftHandMode) FabPosition.Start else FabPosition.End,
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
@@ -168,13 +203,13 @@ fun FileBrowserScreen(
                         )
                     }
                 }
-                state.entries.isEmpty() -> {
+                state.filteredEntries.isEmpty() -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "Empty folder",
+                            text = if (state.searchActive) "No matches" else "Empty folder",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge,
                         )
@@ -182,7 +217,7 @@ fun FileBrowserScreen(
                 }
                 else -> {
                     FileList(
-                        entries = state.entries,
+                        entries = state.filteredEntries,
                         onTap = { entry ->
                             if (entry.type == "dir") {
                                 viewModel.navigateInto(entry.name)
@@ -221,6 +256,35 @@ fun FileBrowserScreen(
                     viewModel.selectForAction(null)
                     onAddToFavorites?.invoke(entry, fullPath)
                 },
+                onMove = {
+                    moveEntry = entry
+                    viewModel.selectForAction(null)
+                },
+                onDetails = {
+                    detailsEntry = entry
+                    viewModel.selectForAction(null)
+                },
+            )
+        }
+
+        moveEntry?.let { entry ->
+            MoveDialog(
+                entryName = entry.name,
+                currentPath = state.currentPath,
+                onConfirm = { dest ->
+                    viewModel.moveFile(entry, dest)
+                    moveEntry = null
+                },
+                onDismiss = { moveEntry = null },
+                listDirectory = { path -> viewModel.listDirectory(path) },
+            )
+        }
+
+        detailsEntry?.let { entry ->
+            FileDetailsDialog(
+                entry = entry,
+                currentPath = state.currentPath,
+                onDismiss = { detailsEntry = null },
             )
         }
     }
