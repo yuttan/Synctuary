@@ -4,7 +4,7 @@
 > not to break" briefing for any new Claude Code session picking up the
 > Synctuary project. Update it in lock-step with the architecture.
 
-**Last updated**: 2026-04-30 (after Android Phase 2 merge / PR #9)
+**Last updated**: 2026-05-02 (after Android Phase 6 merge / PR #17)
 **Repo**: https://github.com/yuttan/Synctuary (public, Apache-2.0)
 
 ---
@@ -92,16 +92,23 @@ Synctuary/
             │   ├── AndroidManifest.xml
             │   ├── java/io/synctuary/android/
             │   │   ├── SynctuaryApp.kt              ← Application
-            │   │   ├── MainActivity.kt              ← NavHost entry (Phase 2.2)
+            │   │   ├── MainActivity.kt              ← NavHost entry, all 4 tabs wired
             │   │   ├── crypto/                      ← B64Url, Bip39, Hkdf, Ed25519, KeyDerivation
             │   │   ├── data/
             │   │   │   ├── api/                     ← Retrofit + Moshi + OkHttp
             │   │   │   ├── secret/SecretStore.kt    ← EncryptedSharedPreferences
-            │   │   │   └── PairingRepository.kt     ← §4 orchestration
+            │   │   │   ├── PairingRepository.kt     ← §4 orchestration
+            │   │   │   ├── FileRepository.kt        ← §6 file ops
+            │   │   │   ├── FavoritesRepository.kt   ← §8 favorites
+            │   │   │   └── DevicesRepository.kt     ← §7 device management
             │   │   └── ui/
             │   │       ├── navigation/              ← NavRoutes + BottomNavBar
             │   │       ├── onboarding/              ← screens 1-3 + OnboardingViewModel
             │   │       ├── files/                   ← FileBrowser + ActionSheet + ViewModel
+            │   │       ├── preview/                 ← ImagePreview + MediaPreview (Coil/ExoPlayer)
+            │   │       ├── favorites/               ← FavoritesScreen + AddToFavorites + BiometricHelper
+            │   │       ├── devices/                 ← DevicesScreen + ViewModel (screen 6)
+            │   │       ├── settings/                ← SettingsScreen + ViewModel (screen 7)
             │   │       ├── theme/                   ← Color / Theme / Type
             │   │       └── debug/PairingTestScreen.kt
             │   ├── res/                             ← drawable, mipmap, values, xml
@@ -252,7 +259,7 @@ seed comparison. Real Trezor vector for 0x80×32: last word is `bless`.
 
 ## 7. Phase status (what's done, what's next)
 
-### Done (v0.4 ＝ 2026-05-01)
+### Done (v0.5 ＝ 2026-05-02)
 - ✅ Server: full PROTOCOL §1-§9 implementation, including §8 favorites
 - ✅ Server: container image published to GHCR (`ghcr.io/yuttan/synctuary`, multi-arch)
 - ✅ Server: deploy artifacts (Dockerfile / docker-compose.yml / systemd unit / TLS guide)
@@ -261,15 +268,19 @@ seed comparison. Real Trezor vector for 0x80×32: last word is `bless`.
 - ✅ Android: crypto (BC Ed25519, HKDF, BIP-39) + network (Retrofit) + storage (EncryptedSharedPreferences) + PairingRepository — Phase 2
 - ✅ Android: onboarding UI (mockup screens 1-3) + NavHost + OnboardingViewModel — Phase 2.2 (PR #11)
 - ✅ Android: file browser (mockup screens 4+8) + bearer-auth interceptor + bottom nav + FileRepository — Phase 3 (PR #12)
+- ✅ Android: download to local + chunked upload engine — Phase 4.1 (PR #14)
+- ✅ Android: streaming preview (Coil for images, ExoPlayer for video/audio) — Phase 4.2 (PR #15)
+- ✅ Android: favorites + hidden lists + BiometricPrompt gate (mockup screens 11-14) — Phase 5 (PR #16)
+- ✅ Android: devices list + settings screens (mockup screens 6-7) — Phase 6 (PR #17)
 - ✅ CI: 5 required checks, branch protection ruleset, GHCR publish on tags
 - ✅ Android UI mockups: 14 screens of Material 3 dark
 - ✅ Documentation: SPEC.md, PROTOCOL.md v0.2.3, deploy/README.md, this file
 
 ### Next up (priority order)
-1. **Android Phase 4** — upload progress (foreground service?), download to local, streaming preview (ExoPlayer + Coil).
-2. **Android Phase 5** — favorites with hidden-list flow + BiometricPrompt gate (mockup screens 11-14).
-3. **Android Phase 6** — devices / settings / left-hand mode toggle (mockup screens 6-7).
-4. **Server v0.5** — sync_copy fallback benchmarks; possibly stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+1. **Android polish** — left-hand mode actually flipping bottom nav + FAB, search in file browser, move/details in file action sheet, list detail view in favorites.
+2. **Android testing** — Espresso UI tests, ViewModel unit tests, repository integration tests.
+3. **Server v0.5** — sync_copy fallback benchmarks; possibly stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+4. **iOS client** — phase 1 skeleton.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
