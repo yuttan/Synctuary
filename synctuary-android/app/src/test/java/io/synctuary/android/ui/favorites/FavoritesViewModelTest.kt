@@ -11,8 +11,10 @@ import io.synctuary.android.data.api.dto.FavoriteListDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -77,7 +79,7 @@ class FavoritesViewModelTest {
         advanceUntilIdle()
 
         vm.onHiddenUnlocked()
-        advanceUntilIdle()
+        runCurrent()
 
         val state = vm.uiState.value
         assertTrue(state.hiddenUnlocked)
@@ -90,11 +92,11 @@ class FavoritesViewModelTest {
         advanceUntilIdle()
 
         vm.onHiddenUnlocked()
-        advanceUntilIdle()
+        runCurrent()
         assertTrue(vm.uiState.value.hiddenUnlocked)
 
         vm.lockHidden()
-        advanceUntilIdle()
+        runCurrent()
 
         assertFalse(vm.uiState.value.hiddenUnlocked)
         assertEquals(1, vm.uiState.value.lists.size)
@@ -106,10 +108,10 @@ class FavoritesViewModelTest {
         advanceUntilIdle()
 
         vm.onHiddenUnlocked()
-        advanceUntilIdle()
+        runCurrent()
 
         vm.onAppBackgrounded()
-        advanceUntilIdle()
+        runCurrent()
 
         assertFalse(vm.uiState.value.hiddenUnlocked)
     }
