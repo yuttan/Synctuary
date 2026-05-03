@@ -52,11 +52,23 @@ type testEnv struct {
 	cleanup     func()
 }
 
+// testEnvOpts configures the test harness. Zero value gives defaults.
+type testEnvOpts struct {
+	dedupFallback string // "fallthrough" (default) or "sync_copy"
+}
+
 // newTestEnv stands up a fresh in-process daemon. It mirrors
 // cmd/synctuaryd/main.go's wiring; if you change the production
 // graph, update this too.
-func newTestEnv(t *testing.T) *testEnv {
+func newTestEnv(t *testing.T, opts ...testEnvOpts) *testEnv {
 	t.Helper()
+	var o testEnvOpts
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if o.dedupFallback == "" {
+		o.dedupFallback = "fallthrough"
+	}
 	tmpDir := t.TempDir()
 
 	storeRoot := filepath.Join(tmpDir, "store")
@@ -131,7 +143,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("pairing svc: %v", err)
 	}
-	fileSvc, err := usecase.NewFileService(fileRepo, storage, uploads, "fallthrough", 30*time.Second)
+	fileSvc, err := usecase.NewFileService(fileRepo, storage, uploads, o.dedupFallback, 30*time.Second)
 	if err != nil {
 		t.Fatalf("file svc: %v", err)
 	}

@@ -172,7 +172,7 @@ func main() {
 		logger.Error("pairing service init failed", "err", err)
 		os.Exit(1)
 	}
-	fileSvc, err := usecaseFile(fileRepo, storage, uploads, cfg.Upload.DedupFallback, cfg.Upload.DedupSyncCopyTimeout)
+	fileSvc, err := usecaseFile(fileRepo, storage, uploads, cfg.Upload.DedupFallback, cfg.Upload.DedupSyncCopyTimeout, logger)
 	if err != nil {
 		logger.Error("file service init failed", "err", err)
 		os.Exit(1)
@@ -450,8 +450,9 @@ func usecaseFile(
 	uploads domainfile.UploadSession,
 	dedupFallback string,
 	dedupTimeout time.Duration,
+	logger *slog.Logger,
 ) (*usecase.FileService, error) {
-	return usecase.NewFileService(repo, storage, uploads, dedupFallback, dedupTimeout)
+	return usecase.NewFileService(repo, storage, uploads, dedupFallback, dedupTimeout, usecase.WithLogger(logger))
 }
 
 func usecaseDevice(repo device.Repository) *usecase.DeviceService {

@@ -273,14 +273,14 @@ seed comparison. Real Trezor vector for 0x80×32: last word is `bless`.
 - ✅ Android: favorites + hidden lists + BiometricPrompt gate (mockup screens 11-14) — Phase 5 (PR #16)
 - ✅ Android: devices list + settings screens (mockup screens 6-7) — Phase 6 (PR #17)
 - ✅ Android: polish — left-hand mode, file search, move/details actions, favorites detail view (PR #18)
+- ✅ Android: unit tests — ViewModel tests (MockK + coroutines-test), DTO serialization, TransferState, UiState logic (PR #19)
 - ✅ CI: 5 required checks, branch protection ruleset, GHCR publish on tags
 - ✅ Android UI mockups: 14 screens of Material 3 dark
 - ✅ Documentation: SPEC.md, PROTOCOL.md v0.2.3, deploy/README.md, this file
 
 ### Next up (priority order)
-1. **Android testing** — Espresso UI tests, ViewModel unit tests, repository integration tests.
-2. **Server v0.5** — sync_copy fallback benchmarks; possibly stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
-3. **iOS client** — phase 1 skeleton.
+1. **Server v0.5** — sync_copy fallback benchmarks; possibly stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+2. **iOS client** — phase 1 skeleton.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
