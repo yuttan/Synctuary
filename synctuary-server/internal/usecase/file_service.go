@@ -3,9 +3,11 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"time"
 
 	"github.com/synctuary/synctuary-server/internal/domain/file"
@@ -21,6 +23,7 @@ type FileService struct {
 	uploads       file.UploadSession
 	dedupFallback string
 	dedupTimeout  time.Duration
+	log           *slog.Logger
 }
 
 func NewFileService(
@@ -29,6 +32,7 @@ func NewFileService(
 	uploads file.UploadSession,
 	dedupFallback string,
 	dedupTimeout time.Duration,
+	opts ...FileServiceOption,
 ) (*FileService, error) {
 	if repo == nil || storage == nil || uploads == nil {
 		return nil, fmt.Errorf("file_service: missing dependency")
@@ -41,13 +45,26 @@ func NewFileService(
 	if dedupTimeout <= 0 {
 		dedupTimeout = 30 * time.Second
 	}
-	return &FileService{
+	fs := &FileService{
 		repo:          repo,
 		storage:       storage,
 		uploads:       uploads,
 		dedupFallback: dedupFallback,
 		dedupTimeout:  dedupTimeout,
-	}, nil
+		log:           slog.Default(),
+	}
+	for _, o := range opts {
+		o(fs)
+	}
+	return fs, nil
+}
+
+// FileServiceOption configures optional FileService behaviour.
+type FileServiceOption func(*FileService)
+
+// WithLogger overrides the default slog.Logger for dedup tracing.
+func WithLogger(l *slog.Logger) FileServiceOption {
+	return func(s *FileService) { s.log = l }
 }
 
 // InitUpload implements PROTOCOL §6.3.1:
@@ -83,22 +100,38 @@ func (s *FileService) InitUpload(ctx context.Context, params *file.UploadInitPar
 		// Avoid linking a file onto itself (overwrite of the same
 		// SHA at the same path is a no-op).
 		if match.Path == params.Path && bytes.Equal(match.SHA256, params.SHA256) {
+			s.log.Debug("dedup: self-match no-op", slog.String("path", params.Path))
 			return &file.UploadInitResult{Deduplicated: true}, nil
 		}
+		s.log.Debug("dedup: candidate found", slog.String("source", match.Path), slog.String("target", params.Path))
 		linkErr := s.storage.DeduplicateLink(ctx, params.SHA256, params.Path)
 		switch {
 		case linkErr == nil:
+			s.log.Debug("dedup: hardlink success", slog.String("path", params.Path))
 			s.recordDedupedFile(ctx, params)
 			return &file.UploadInitResult{Deduplicated: true}, nil
 		case errors.Is(linkErr, file.ErrDedupUnsupported):
+			s.log.Debug("dedup: hardlink unsupported, fallback=" + s.dedupFallback)
 			if s.dedupFallback == "sync_copy" {
+				start := time.Now()
 				cctx, cancel := context.WithTimeout(ctx, s.dedupTimeout)
 				defer cancel()
 				if copyErr := s.storage.SyncCopy(cctx, params.SHA256, params.Path); copyErr == nil {
+					dur := time.Since(start)
+					s.log.Info("dedup: sync_copy success",
+						slog.String("path", params.Path),
+						slog.Int64("size", params.Size),
+						slog.Duration("duration", dur),
+					)
 					s.recordDedupedFile(ctx, params)
 					return &file.UploadInitResult{Deduplicated: true}, nil
+				} else {
+					s.log.Warn("dedup: sync_copy failed, falling through to upload",
+						slog.String("path", params.Path),
+						slog.String("err", copyErr.Error()),
+						slog.Duration("elapsed", time.Since(start)),
+					)
 				}
-				// Timeout / copy failure: fall through to normal upload.
 			}
 			// Continue to normal upload.
 		default:
@@ -140,9 +173,6 @@ func (s *FileService) List(ctx context.Context, path string, withHash bool) (*Li
 		return nil, err
 	}
 	if withHash {
-		// Best-effort population from the uploads index; files we
-		// have no record for are left without a hash. Per §6.1
-		// servers MAY compute on demand — deferred until v0.4.1.
 		for i, e := range entries {
 			if e.IsDir {
 				continue
@@ -151,10 +181,30 @@ func (s *FileService) List(ctx context.Context, path string, withHash bool) (*Li
 			meta, err := s.repo.FindByPath(ctx, full)
 			if err == nil && meta != nil {
 				entries[i].SHA256 = meta.SHA256
+				continue
+			}
+			// §6.1: compute on demand when no cached hash exists.
+			if h, herr := s.computeSHA256(ctx, full); herr == nil {
+				entries[i].SHA256 = h
 			}
 		}
 	}
 	return &ListResult{Path: path, Entries: entries}, nil
+}
+
+// computeSHA256 reads a file from storage and returns its SHA-256 hash.
+// Errors are swallowed by the caller (best-effort).
+func (s *FileService) computeSHA256(ctx context.Context, path string) ([]byte, error) {
+	rc, err := s.storage.Get(ctx, path, 0, -1)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, rc); err != nil {
+		return nil, err
+	}
+	return h.Sum(nil), nil
 }
 
 func (s *FileService) Read(ctx context.Context, path string, rangeStart, rangeEnd int64) (io.ReadCloser, *file.FileMeta, error) {
