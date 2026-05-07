@@ -50,6 +50,14 @@ class FileRepository(private val secretStore: SecretStore) {
         onProgress: (received: Long, total: Long?) -> Unit,
     ): File = DownloadManager(authenticatedApi()).download(remotePath, destFile, onProgress)
 
+    /** Download to a SAF URI (user-chosen folder or Save As target). */
+    suspend fun downloadFileToUri(
+        remotePath: String,
+        resolver: ContentResolver,
+        destUri: Uri,
+        onProgress: (received: Long, total: Long?) -> Unit,
+    ): Uri = DownloadManager(authenticatedApi()).downloadToUri(remotePath, resolver, destUri, onProgress)
+
     suspend fun uploadFile(
         contentResolver: ContentResolver,
         uri: Uri,

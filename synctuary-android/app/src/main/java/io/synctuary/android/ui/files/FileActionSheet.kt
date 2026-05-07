@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -50,6 +51,7 @@ fun FileActionSheet(
     onDelete: () -> Unit,
     onRename: (String) -> Unit,
     onDownload: () -> Unit,
+    onSaveAs: () -> Unit,
     onAddToFavorites: () -> Unit,
     onMove: () -> Unit,
     onDetails: () -> Unit,
@@ -99,6 +101,7 @@ fun FileActionSheet(
 
         // Actions
         SheetAction(Icons.Filled.Download, "Download") { onDownload() }
+        SheetAction(Icons.Filled.SaveAlt, "Save As...") { onSaveAs() }
         SheetAction(Icons.Filled.StarOutline, "Add to Favorites...") { onAddToFavorites() }
         SheetAction(Icons.Filled.Edit, "Rename") { showRenameDialog = true }
         SheetAction(Icons.Filled.SwapHoriz, "Move") { onMove() }

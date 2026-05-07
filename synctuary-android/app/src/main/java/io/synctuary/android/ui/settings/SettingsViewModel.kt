@@ -33,6 +33,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             platform = "Android ${android.os.Build.VERSION.RELEASE}",
             leftHandMode = prefs.getBoolean(K_LEFT_HAND, false),
             biometricProtection = prefs.getBoolean(K_BIO_PROTECT, true),
+            downloadFolderUri = prefs.getString(K_DOWNLOAD_FOLDER, null),
         )
     }
 
@@ -80,6 +81,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(biometricProtection = enabled) }
     }
 
+    fun setDownloadFolder(uriString: String?) {
+        prefs.edit().apply {
+            if (uriString != null) putString(K_DOWNLOAD_FOLDER, uriString)
+            else remove(K_DOWNLOAD_FOLDER)
+        }.apply()
+        _uiState.update { it.copy(downloadFolderUri = uriString) }
+    }
+
     fun unpair(onComplete: () -> Unit) {
         viewModelScope.launch {
             try {
@@ -97,6 +106,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         private const val PREFS_NAME = "synctuary-settings"
         private const val K_LEFT_HAND = "left_hand_mode"
         private const val K_BIO_PROTECT = "biometric_protection"
+        internal const val K_DOWNLOAD_FOLDER = "download_folder_uri"
     }
 }
 
@@ -116,5 +126,6 @@ data class SettingsUiState(
     val pairedAt: Long = 0L,
     val leftHandMode: Boolean = false,
     val biometricProtection: Boolean = true,
+    val downloadFolderUri: String? = null,
     val error: String? = null,
 )

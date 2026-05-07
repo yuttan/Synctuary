@@ -100,6 +100,9 @@ dependencies {
     // DataStore (small key-value: server URL, transport profile, last-seen times)
     implementation(libs.datastore.preferences)
 
+    // DocumentFile: SAF tree-URI traversal for the local file browser
+    implementation(libs.androidx.documentfile)
+
     // Security: biometric prompt for the §8.9 hidden-list gate;
     // EncryptedSharedPreferences for the device_token; Bouncy Castle
     // for Ed25519 + HKDF (PROTOCOL §3 / §4.1).

@@ -1,21 +1,22 @@
 package io.synctuary.android.ui.files
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import android.provider.OpenableColumns
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.synctuary.android.data.FileRepository
 import io.synctuary.android.data.TransferState
 import io.synctuary.android.data.api.dto.FileEntry
 import io.synctuary.android.data.secret.SecretStore
+import io.synctuary.android.ui.settings.SettingsViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.io.File
 
 class FileBrowserViewModel @JvmOverloads constructor(
     application: Application,
@@ -130,27 +131,73 @@ class FileBrowserViewModel @JvmOverloads constructor(
         return repo.listFiles(path)
     }
 
+    /** Download to the user-configured SAF folder, falling back to
+     *  app-private storage when no folder is set. */
     fun startDownload(entry: FileEntry) {
         val app = getApplication<Application>()
         val name = entry.name
         val remotePath = buildEntryPath(name)
-        val destDir = app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: app.filesDir
-        val destFile = File(destDir, name)
+        val prefs = app.getSharedPreferences("synctuary-settings", Context.MODE_PRIVATE)
+        val folderUri = prefs.getString(SettingsViewModel.K_DOWNLOAD_FOLDER, null)
 
         _uiState.update { it.copy(downloadState = TransferState.Running(name, 0L, entry.size)) }
         viewModelScope.launch {
             try {
-                repo.downloadFile(remotePath, destFile) { received, total ->
+                val destLabel: String
+                if (folderUri != null) {
+                    // SAF tree URI — create a file inside the chosen folder.
+                    val treeDoc = DocumentFile.fromTreeUri(app, Uri.parse(folderUri))
+                    val mime = entry.mime_type ?: "application/octet-stream"
+                    val destDoc = treeDoc?.createFile(mime, name)
+                        ?: throw IllegalStateException("Cannot create file in download folder")
+                    repo.downloadFileToUri(remotePath, app.contentResolver, destDoc.uri) { received, total ->
+                        _uiState.update {
+                            it.copy(downloadState = TransferState.Running(name, received, total))
+                        }
+                    }
+                    destLabel = destDoc.uri.toString()
+                } else {
+                    // Fallback: app-private external files dir.
+                    val destDir = app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: app.filesDir
+                    val destFile = java.io.File(destDir, name)
+                    repo.downloadFile(remotePath, destFile) { received, total ->
+                        _uiState.update {
+                            it.copy(downloadState = TransferState.Running(name, received, total))
+                        }
+                    }
+                    destLabel = destFile.absolutePath
+                }
+                _uiState.update {
+                    it.copy(downloadState = TransferState.Done(name, destLabel))
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(downloadState = TransferState.Failed(name, e.message ?: "Download failed"))
+                }
+            }
+        }
+    }
+
+    /** "Save As..." — download to a user-picked SAF URI (from CreateDocument). */
+    fun saveAsDownload(entry: FileEntry, destUri: Uri) {
+        val app = getApplication<Application>()
+        val name = entry.name
+        val remotePath = buildEntryPath(name)
+
+        _uiState.update { it.copy(downloadState = TransferState.Running(name, 0L, entry.size)) }
+        viewModelScope.launch {
+            try {
+                repo.downloadFileToUri(remotePath, app.contentResolver, destUri) { received, total ->
                     _uiState.update {
                         it.copy(downloadState = TransferState.Running(name, received, total))
                     }
                 }
                 _uiState.update {
-                    it.copy(downloadState = TransferState.Done(name, destFile.absolutePath))
+                    it.copy(downloadState = TransferState.Done(name, destUri.toString()))
                 }
             } catch (e: Exception) {
                 _uiState.update {
-                    it.copy(downloadState = TransferState.Failed(name, e.message ?: "Download failed"))
+                    it.copy(downloadState = TransferState.Failed(name, e.message ?: "Save As failed"))
                 }
             }
         }
