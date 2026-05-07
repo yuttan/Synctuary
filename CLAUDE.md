@@ -264,6 +264,7 @@ seed comparison. Real Trezor vector for 0x80×32: last word is `bless`.
 - ✅ Server: container image published to GHCR (`ghcr.io/yuttan/synctuary`, multi-arch)
 - ✅ Server: deploy artifacts (Dockerfile / docker-compose.yml / systemd unit / TLS guide)
 - ✅ Server: build provenance via `-ldflags -X main.serverVersion=... -X main.commit=...`
+- ✅ Server: v0.5 — on-demand SHA-256 for `?hash=true`, dedup tracing (slog), sync_copy benchmarks, functional-options `NewFileService` (PR #20)
 - ✅ Android: skeleton (Compose / M3 dark / brand) — Phase 1
 - ✅ Android: crypto (BC Ed25519, HKDF, BIP-39) + network (Retrofit) + storage (EncryptedSharedPreferences) + PairingRepository — Phase 2
 - ✅ Android: onboarding UI (mockup screens 1-3) + NavHost + OnboardingViewModel — Phase 2.2 (PR #11)
@@ -279,12 +280,13 @@ seed comparison. Real Trezor vector for 0x80×32: last word is `bless`.
 - ✅ Documentation: SPEC.md, PROTOCOL.md v0.2.3, deploy/README.md, this file
 
 ### Next up (priority order)
-1. **Server v0.5** — sync_copy fallback benchmarks; possibly stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
-2. **iOS client** — phase 1 skeleton.
+1. **Real-device integration testing** — Android APK + running server on the LAN, end-to-end §4 pairing flow verification.
+2. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+3. **iOS client** — deferred until test device is available.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
-- **First production tag** (`v0.4.0`): user pushes `git tag v0.4.0 && git push origin v0.4.0` when comfortable.
+- **First production tag** (`v0.5.0`): user pushes `git tag v0.5.0 && git push origin v0.5.0` when comfortable.
 - **Real-device pair test**: install debug APK on a phone, point at a running server, confirm the §4 flow works end-to-end (matters for sanity-checking the EncryptedSharedPreferences path on a real Keystore).
 
 ## 8. Subagent (サヤ) usage

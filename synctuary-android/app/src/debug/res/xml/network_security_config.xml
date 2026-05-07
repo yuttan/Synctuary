@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   DEBUG-ONLY override: permits cleartext (HTTP) so the Android app
+   can talk to a dev-plaintext server (PROTOCOL §10.1) without TLS.
+   This file is NOT compiled into release builds — Android resource
+   merging picks src/debug/ over src/main/ for the debug variant.
+
+   Release builds use src/main/res/xml/network_security_config.xml
+   which denies cleartext unconditionally.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <!-- Trust user-installed CAs in debug: allows self-signed
+                 home-LAN certs installed via Settings > Security. -->
+            <certificates src="user" overridePins="false" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
