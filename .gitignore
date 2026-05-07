@@ -26,6 +26,7 @@ synctuary-server/vendor/
 # Smoke-test / development server roots:
 /tmp/
 synctuary-server/data/
+synctuary-server/devdata/
 synctuary-server/storage/
 synctuary-server/staging/
 *.db

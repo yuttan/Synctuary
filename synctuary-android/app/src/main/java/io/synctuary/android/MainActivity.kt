@@ -28,6 +28,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import io.synctuary.android.BuildConfig
 import io.synctuary.android.data.secret.SecretStore
 import io.synctuary.android.ui.debug.PairingTestScreen
 import io.synctuary.android.ui.devices.DevicesScreen
@@ -262,9 +263,12 @@ private fun SynctuaryNavHost() {
                 )
             }
 
-            // Debug
-            composable(NavRoute.PairingDebug.route) {
-                PairingTestScreen()
+            // Debug — only reachable in debug builds; release strips
+            // this branch so the route is never registered.
+            if (BuildConfig.DEBUG) {
+                composable(NavRoute.PairingDebug.route) {
+                    PairingTestScreen()
+                }
             }
         }
     }
