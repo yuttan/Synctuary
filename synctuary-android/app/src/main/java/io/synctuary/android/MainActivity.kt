@@ -51,6 +51,7 @@ import io.synctuary.android.ui.onboarding.ServerUrlScreen
 import io.synctuary.android.ui.preview.ImagePreviewScreen
 import io.synctuary.android.ui.preview.MediaPreviewScreen
 import io.synctuary.android.ui.preview.PreviewViewModel
+import io.synctuary.android.ui.preview.VideoPlayerViewModel
 import io.synctuary.android.ui.settings.SettingsScreen
 import io.synctuary.android.ui.settings.SettingsViewModel
 import io.synctuary.android.ui.theme.SynctuaryTheme
@@ -85,6 +86,7 @@ private fun SynctuaryNavHost() {
     val onboardingVm: OnboardingViewModel = viewModel()
     val fileBrowserVm: FileBrowserViewModel = viewModel()
     val previewVm: PreviewViewModel = viewModel()
+    val videoPlayerVm: VideoPlayerViewModel = viewModel()
     val localFilesVm: LocalFilesViewModel = viewModel()
     val favoritesVm: FavoritesViewModel = viewModel()
     val devicesVm: DevicesViewModel = viewModel()
@@ -277,7 +279,30 @@ private fun SynctuaryNavHost() {
                 MediaPreviewScreen(
                     remotePath = path,
                     viewModel = previewVm,
+                    videoPlayerVm = videoPlayerVm,
                     onBack = { navController.popBackStack() },
+                    onFullscreenChanged = { fullscreen ->
+                        activity?.window?.let { window ->
+                            val insetsController = androidx.core.view.WindowCompat.getInsetsController(
+                                window, window.decorView
+                            )
+                            if (fullscreen) {
+                                insetsController.hide(
+                                    androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                                )
+                                insetsController.setSystemBarsBehavior(
+                                    androidx.core.view.WindowInsetsCompat.SystemUiBehavior.immersiveSticky()
+                                )
+                            } else {
+                                insetsController.show(
+                                    androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                                )
+                                insetsController.setSystemBarsBehavior(
+                                    androidx.core.view.WindowInsetsCompat.SystemUiBehavior.defaults()
+                                )
+                            }
+                        }
+                    },
                 )
             }
 
