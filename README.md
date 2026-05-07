@@ -9,35 +9,43 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF.svg?logo=kotlin&logoColor=white)](./synctuary-android/gradle/libs.versions.toml)
 
 A self-hosted file synchronization server for the home LAN, with native clients.
+ホームLAN用のセルフホスト型ファイル同期サーバーとネイティブクライアント。
 
 > **Status** (2026-04-30): server v0.4 feature-complete (PROTOCOL v0.2.3 + §8 favorites). Android client Phase 2 done — crypto + network + pairing. Onboarding UI lands in Phase 2.2.
+> **ステータス** (2026-04-30): サーバー v0.4 で機能完了（PROTOCOL v0.2.3 + §8 お気に入り）。Android クライアント Phase 2 完了 — 暗号化 + ネットワーク + ペアリング。オンボーディング UI は Phase 2.2 で実装予定。
 
-## Components
+## Components / コンポーネント
 
 | Component | Path | Status |
 |:---|:---|:---|
 | **Server (Go)** | [`synctuary-server/`](./synctuary-server/) | v0.4 — buildable, lint-clean, full unit + integration tests |
 | **Container image** | [`ghcr.io/yuttan/synctuary`](https://github.com/yuttan/Synctuary/pkgs/container/synctuary) | Multi-arch amd64 + arm64 on tag push; amd64 `:main` on every merge |
 | **Protocol spec** | [`PROTOCOL.md`](./PROTOCOL.md) | **v0.2.3** — §1-§9 finalized, §8 Favorites added |
-| **Architecture doc** | [`arch_saya_go_server_v3.md`](./arch_saya_go_server_v3.md) | Latest server-side design |
-| **Deployment guide** | [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) | Docker / Compose / systemd, all three paths covered |
+| **Architecture doc** | [`arch_saya_go_server_v3.md`](./arch_saya_go_server_v3.md) | Latest server-side design / サーバー側設計（最新） |
+| **Deployment guide** | [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) | Docker / Compose / systemd, all three paths covered / 導入ガイド（全3パターン対応） |
 | **Android client** | [`synctuary-android/`](./synctuary-android/) | Phase 2 done (crypto + network + pairing). Phase 2.2 (UI) pending. See README inside |
-| **Android UI mockups** | [`docs/android-ui-mockups.html`](./docs/android-ui-mockups.html) | 14 screens, Material 3 dark, right-thumb optimized |
-| **iOS client** | (planned) | Slated for v1.0 |
+| **Android UI mockups** | [`docs/android-ui-mockups.html`](./docs/android-ui-mockups.html) | 14 screens, Material 3 dark, right-thumb optimized / 14画面のモックアップ |
+| **iOS client** | (planned) | Slated for v1.0 / v1.0 で実装予定 |
 
-## Design goals
+## Design goals / 設計目標
 
 - **LAN-only by default** — no third-party cloud, no external accounts. Runs on your own hardware (NAS / home server / mini PC).
+  デフォルトでLANのみ。サードパーティのクラウドや外部アカウント不要。自前のハードウェア（NAS / ホームサーバー / ミニPC）上で動作。
 - **Strong cryptographic identity** — server identity is derived from a BIP-39 mnemonic; device pairing uses Ed25519 challenge-response over a 129-byte signed payload (PROTOCOL §4.1).
+  強力な暗号化アイデンティティ。サーバーのアイデンティティは BIP-39 マンダリムから派生。デバイスペアリングには Ed25519 チャレンジ・レスポンスを使用（PROTOCOL §4.1）。
 - **Resumable chunked uploads** — large files survive flaky Wi-Fi (PROTOCOL §6.3).
+  再開可能なチャンクアップロード。不安定なWi-Fiでも大容量ファイルが破れにくい（PROTOCOL §6.3）。
 - **Content-addressed dedup** — same bytes uploaded a second time become a hardlink (or sync-copy fallback).
+  コンテンツアドレス型重複排除。同じバイト列を再アップロードするとハードリンク化され、ストレージを節約。
 - **Clean architecture** — domain → usecase → adapter, every external dependency behind an interface; mirrored in the Android client (`crypto/`, `data/`, `ui/` layers).
+  クリーンアーキテクチャ。domain → usecase → adapter の階層構造。外部依存はすべてインターフェース背後に配置。
 
-## Quick start
+## Quick start / クイックスタート
 
-### Server (development)
+### Server (development) / サーバー（開発環境）
 
 Prerequisites: Go 1.22+ on Linux / macOS / Windows.
+前提条件: Linux / macOS / Windows 上で Go 1.22+
 
 ```sh
 cd synctuary-server
@@ -46,10 +54,12 @@ go run ./cmd/synctuaryd
 ```
 
 First launch prints a 24-word BIP-39 mnemonic on **stderr** — record this offline. Subsequent launches load the persisted master key silently.
+初回起動時に **stderr** に 24語の BIP-39 マンダリムが表示されます。オフラインで記録してください。2回目以降の起動では永続化されたマスターキーをサイレントに読み込みます。
 
-### Server (production)
+### Server (production) / サーバー（本番環境）
 
 Use the published container image:
+公開されているコンテナイメージを使用:
 
 ```sh
 docker run -d --name synctuary \
@@ -61,10 +71,12 @@ docker run -d --name synctuary \
 ```
 
 Or via Docker Compose / systemd — see [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) for the full guide including TLS cert generation and backup strategy.
+Docker Compose や systemd でも導入可能。TLS証明書生成やバックアップ戦略を含む完全ガイドは [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) を参照。
 
-### Android client (development)
+### Android client (development) / Androidクライアント（開発環境）
 
 Prerequisites: JDK 17, Android SDK 26+, Gradle 8.10.2 (wrapper bundled).
+前提条件: JDK 17、Android SDK 26+、Gradle 8.10.2（バンドル済み）
 
 ```sh
 cd synctuary-android
@@ -73,61 +85,71 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The debug build shows a `PairingTestScreen` for end-to-end pairing verification (URL + 24-word mnemonic input). The release build shows a splash placeholder until the Phase 2.2 onboarding UI lands.
+デバッグビルドでは URL と 24語マンダリムの入力によるエンドツーエンドペアリング検証画面が表示されます。リリースビルドは Phase 2.2 のオンボーディング UI 実装までスプラッシュ画面を表示します。
 
-## Tests
+## Tests / テスト
 
 ```sh
-# Server: unit + integration
+# Server: unit + integration / サーバー: ユニット・統合テスト
 cd synctuary-server
 go test ./... -count=1
 golangci-lint run ./...
 
-# Android: JVM unit tests for the crypto layer
+# Android: JVM unit tests for the crypto layer / Android: 暗号化レイヤーのJVMユニットテスト
 cd synctuary-android
 ./gradlew :app:testDebugUnitTest :app:lintDebug
 ```
 
 End-to-end server tests boot a real `httptest.Server` from `internal/integration/` and exercise the full DI graph including SQLite migrations.
+エンドツーエンドのサーバーテストでは、`internal/integration/` から本物の `httptest.Server` を起動し、SQLiteマイグレーションを含む完全なDIグラフを動作検証します。
 
 The Android `crypto/` layer is verified against:
+Android の `crypto/` レイヤーは以下の基準で検証されています:
 - RFC 5869 §A.1 / §A.2 (HKDF-SHA256)
 - RFC 8032 §7.1 Test 1 (Ed25519)
 - Trezor BIP-39 vectors + the Go server's `MnemonicToSeed` for byte-for-byte parity
+  Trezor の BIP-39 テストベクトルと、Go サーバーの `MnemonicToSeed` 間でバイト単位の整合性を確認
 
-## CI
+## CI / 継続的インテグレーション
 
 Five status checks gate every PR (see [`.github/workflows/`](./.github/workflows/)):
+すべてのPRは以下の5つのステータスチェックが必要です（[`.github/workflows/`](./.github/workflows/) を参照）:
 
-| Check | Workflow | Purpose |
+| Check | Workflow | Purpose / 目的 |
 |:---|:---|:---|
-| `Test & Build` | `go.yml` | Go server `go test -race` + `go build` |
-| `golangci-lint` | `go.yml` | Static analysis (forbidigo bans `math/rand`, etc.) |
-| `Docker build` | `go.yml` | Server Dockerfile builds (single-arch amd64, fast feedback) |
-| `Build & Test` | `android.yml` | Android `assembleDebug` + JVM unit tests + lint |
-| `Build & push to GHCR` | `release.yml` | Multi-arch validation (PRs) / publish to GHCR (main + tags) |
+| `Test & Build` | `go.yml` | Go server `go test -race` + `go build` / テストとビルド |
+| `golangci-lint` | `go.yml` | Static analysis (forbidigo bans `math/rand`, etc.) / 静的解析（`math/rand` 禁止など） |
+| `Docker build` | `go.yml` | Server Dockerfile builds (single-arch amd64, fast feedback) / Dockerビルド検証 |
+| `Build & Test` | `android.yml` | Android `assembleDebug` + JVM unit tests + lint / Androidビルドとテスト |
+| `Build & push to GHCR` | `release.yml` | Multi-arch validation (PRs) / publish to GHCR (main + tags) / 多アーキ検証・GHCR公開 |
 
 All five must be green; direct pushes to `main` are blocked. See **Contributing** below for the contributor flow.
+5つすべてがグリーンである必要があります。`main` への直接プッシュはブロックされています。コントリビューターフローについては下の **Contributing / 貢献** を参照。
 
-## License
+## License / ライセンス
 
 Licensed under the [Apache License, Version 2.0](./LICENSE).
+[Apache License, Version 2.0](./LICENSE) に準拠。
 
 The Apache-2.0 license was chosen for its explicit patent grant (relevant for the cryptographic primitives used in pairing and content addressing) and its compatibility with the broader Go and Android ecosystems. The protocol itself (`PROTOCOL.md`) is intended to be implementable independently — clients in any language under any license are welcome.
+ペアリングやコンテンツアドレスで使用される暗号プリミティブに関連する特許付与の明確さ、およびGo・Androidエコシステムとの互換性から Apache-2.0 を選択。プロトコル自体（`PROTOCOL.md`）は独立して実装可能であり、言語やライセンスを問わずクライアントの実装を迎え入れます。
 
-## Contributing
+## Contributing / 貢献
 
 This is currently a personal project but the protocol is designed to be implementable independently. Issues / discussions welcome.
+現在は個人プロジェクトですが、プロトコルは独立して実装可能なように設計されています。Issues / Discussions 歓迎。
 
-### Branch protection on `main`
+### Branch protection on `main` / `main` ブランチの保護
 
 `main` is protected by a [repository ruleset](./.github/branch-protection.json). All changes — including those by repository owners — go through a pull request:
+[リポジトリルールセット](./.github/branch-protection.json) で `main` を保護。リポジトリオーナーを含むすべての変更はPR経由で行います:
 
-1. Direct pushes to `main` are blocked (`current_user_can_bypass: never`).
-2. Force pushes and branch deletion are blocked.
-3. The 5 CI status checks listed above MUST all be green before merge.
-4. PRs MUST be up-to-date with `main` (strict mode) before merge.
+1. Direct pushes to `main` are blocked (`current_user_can_bypass: never`). / `main` への直接プッシュをブロック
+2. Force pushes and branch deletion are blocked. / フォースプッシュとブランチ削除をブロック
+3. The 5 CI status checks listed above MUST all be green before merge. / 上記の5つのCIチェックがすべてグリーンであることを必須
+4. PRs MUST be up-to-date with `main` (strict mode) before merge. / マージ前に `main` と最新であることを必須（厳格モード）
 
-Contributor flow:
+Contributor flow: / コントリビューターフロー:
 
 ```sh
 git checkout -b feat/your-change
@@ -140,15 +162,17 @@ git checkout main && git pull --rebase
 ```
 
 The ruleset definition is committed to the repo (`.github/branch-protection.json`); update it in-place and re-apply via:
+ルールセットの定義はリポジトリにコミットされています（`.github/branch-protection.json`）。原地で更新し、以下のように再適用:
 
 ```sh
 gh api -X PUT 'repos/yuttan/Synctuary/rulesets/15650418' \
   --input .github/branch-protection.json
 ```
 
-### Releases
+### Releases / リリース
 
 Tag a commit on `main` to trigger a multi-arch container publish:
+`main` のコミットにタグを付けると、マルチアーキテクチャのコンテナ公開がトリガーされます:
 
 ```sh
 git tag v0.4.1
@@ -157,3 +181,4 @@ git push origin v0.4.1
 ```
 
 `VERSION` and `COMMIT` build-args are auto-injected via `-ldflags -X` and surface in `/api/v1/info` (`server_version`, `commit`) and the startup log.
+`VERSION` と `COMMIT` のビルド引数は `-ldflags -X` で自動注入され、`/api/v1/info` エンドポイント（`server_version`、`commit`）および起動ログに表示されます。
