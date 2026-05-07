@@ -34,6 +34,7 @@ coroutines           = "1.9.0"
 # Persistence
 room                 = "2.6.1"
 datastore            = "1.1.1"
+documentfile         = "1.0.1"
 
 # Crypto / security
 biometric            = "1.2.0-alpha05"
@@ -91,6 +92,7 @@ room-compiler                    = { module = "androidx.room:room-compiler",    
 
 # DataStore (preferences-style key/value)
 datastore-preferences            = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
+androidx-documentfile            = { module = "androidx.documentfile:documentfile",       version.ref = "documentfile" }
 
 # Media / image loading
 coil-compose                     = { module = "io.coil-kt:coil-compose",              version.ref = "coil" }

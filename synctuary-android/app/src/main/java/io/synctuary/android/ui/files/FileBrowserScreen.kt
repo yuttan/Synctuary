@@ -83,10 +83,25 @@ fun FileBrowserScreen(
     var moveEntry by remember { mutableStateOf<FileEntry?>(null) }
     var detailsEntry by remember { mutableStateOf<FileEntry?>(null) }
 
+    // The entry currently requesting "Save As..." — set when the user
+    // taps the action, consumed when the SAF picker returns a URI.
+    var saveAsEntry by remember { mutableStateOf<FileEntry?>(null) }
+
     val uploadLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         uri?.let { viewModel.startUpload(it) }
+    }
+
+    val saveAsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        if (uri != null) {
+            saveAsEntry?.let { entry ->
+                viewModel.saveAsDownload(entry, uri)
+            }
+        }
+        saveAsEntry = null
     }
 
     LaunchedEffect(state.downloadState) {
@@ -249,6 +264,11 @@ fun FileBrowserScreen(
                 onDownload = {
                     viewModel.startDownload(entry)
                     viewModel.selectForAction(null)
+                },
+                onSaveAs = {
+                    saveAsEntry = entry
+                    viewModel.selectForAction(null)
+                    saveAsLauncher.launch(entry.name)
                 },
                 onAddToFavorites = {
                     val current = state.currentPath

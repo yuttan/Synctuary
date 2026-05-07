@@ -1,7 +1,11 @@
 package io.synctuary.android.ui.settings
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
@@ -49,7 +54,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +67,21 @@ import java.util.Locale
 fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     var showUnpairDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val folderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            // Persist permission so the URI survives reboots.
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+            viewModel.setDownloadFolder(uri.toString())
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.loadDeviceInfo()
@@ -125,7 +147,35 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                 }
             }
 
-            // Section 3: Options
+            // Section 3: Storage
+            item { SectionHeader("Storage") }
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                ) {
+                    val folderLabel = state.downloadFolderUri?.let { uri ->
+                        // Show last path segment for readability.
+                        Uri.parse(uri).lastPathSegment?.replace("primary:", "")
+                            ?: "Selected"
+                    } ?: "Not set (tap to choose)"
+
+                    SettingsRow(
+                        icon = Icons.Filled.FolderOpen,
+                        label = "Download folder",
+                        description = folderLabel,
+                        trailing = {
+                            TextButton(onClick = { folderPicker.launch(null) }) {
+                                Text(if (state.downloadFolderUri != null) "Change" else "Choose")
+                            }
+                        },
+                    )
+                }
+            }
+
+            // Section 4: Options
             item { SectionHeader("Options") }
             item {
                 Card(
@@ -148,7 +198,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                 }
             }
 
-            // Section 4: Privacy
+            // Section 5: Privacy
             item { SectionHeader("Privacy") }
             item {
                 Card(
@@ -171,7 +221,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                 }
             }
 
-            // Section 5: Danger zone
+            // Section 6: Danger zone
             item { SectionHeader("Danger zone") }
             item {
                 OutlinedCard(

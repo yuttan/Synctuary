@@ -38,8 +38,9 @@ import io.synctuary.android.ui.favorites.BiometricHelper
 import io.synctuary.android.ui.favorites.FavoriteListDetailScreen
 import io.synctuary.android.ui.favorites.FavoritesScreen
 import io.synctuary.android.ui.favorites.FavoritesViewModel
-import io.synctuary.android.ui.files.FileBrowserScreen
 import io.synctuary.android.ui.files.FileBrowserViewModel
+import io.synctuary.android.ui.files.FilesTabScreen
+import io.synctuary.android.ui.files.LocalFilesViewModel
 import io.synctuary.android.ui.navigation.BottomNavBar
 import io.synctuary.android.ui.navigation.NavRoute
 import io.synctuary.android.ui.onboarding.MnemonicScreen
@@ -83,6 +84,7 @@ private fun SynctuaryNavHost() {
     val onboardingVm: OnboardingViewModel = viewModel()
     val fileBrowserVm: FileBrowserViewModel = viewModel()
     val previewVm: PreviewViewModel = viewModel()
+    val localFilesVm: LocalFilesViewModel = viewModel()
     val favoritesVm: FavoritesViewModel = viewModel()
     val devicesVm: DevicesViewModel = viewModel()
     val settingsVm: SettingsViewModel = viewModel()
@@ -167,8 +169,9 @@ private fun SynctuaryNavHost() {
 
             // Main tabs
             composable(NavRoute.TabFiles.route) {
-                FileBrowserScreen(
-                    viewModel = fileBrowserVm,
+                FilesTabScreen(
+                    fileBrowserVm = fileBrowserVm,
+                    localFilesVm = localFilesVm,
                     leftHandMode = leftHandMode,
                     onPreview = { entry ->
                         val current = fileBrowserVm.uiState.value.currentPath
@@ -183,6 +186,9 @@ private fun SynctuaryNavHost() {
                     },
                     onAddToFavorites = { entry, path ->
                         favDialogFile = Pair(entry.name, path)
+                    },
+                    onUploadFromLocal = { uri ->
+                        fileBrowserVm.startUpload(uri)
                     },
                 )
             }
