@@ -132,7 +132,6 @@ function WireGuardSection({ status }: { status: RemoteAccessStatus }) {
   const [peers, setPeers] = useState<WGPeer[]>([])
   const [serverPubKey, setServerPubKey] = useState('')
   const [serverIP, setServerIP] = useState('')
-  const [enabled, setEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [newPeerName, setNewPeerName] = useState('')
@@ -143,7 +142,6 @@ function WireGuardSection({ status }: { status: RemoteAccessStatus }) {
     try {
       const res = await api.wgPeers()
       setPeers(res.peers || [])
-      setEnabled(res.enabled)
       setServerPubKey(res.server_public_key || '')
       setServerIP(res.server_ip || '')
     } catch { /* ignore */ }
