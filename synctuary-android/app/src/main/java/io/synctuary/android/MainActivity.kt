@@ -290,12 +290,14 @@ private fun SynctuaryNavHost() {
                                 insetsController.hide(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
-                                insetsController.systemBarsBehavior = 2
+                                insetsController.systemBarsBehavior =
+                                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                             } else {
                                 insetsController.show(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
-                                insetsController.systemBarsBehavior = 0
+                                insetsController.systemBarsBehavior =
+                                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
                             }
                         }
                     },
