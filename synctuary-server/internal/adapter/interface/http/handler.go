@@ -25,6 +25,8 @@ import (
 
 	"github.com/synctuary/synctuary-server/internal/domain/device"
 	dfile "github.com/synctuary/synctuary-server/internal/domain/file"
+	"github.com/synctuary/synctuary-server/internal/domain/pin"
+	"github.com/synctuary/synctuary-server/internal/domain/share"
 	"github.com/synctuary/synctuary-server/internal/usecase"
 )
 
@@ -43,6 +45,8 @@ type Handler struct {
 	files     *usecase.FileService
 	devices   *usecase.DeviceService
 	favorites *usecase.FavoriteService
+	shares    *usecase.ShareService
+	pins      *usecase.PinService
 	deviceRP  device.Repository
 
 	log *slog.Logger
@@ -65,6 +69,8 @@ type HandlerConfig struct {
 	Files            *usecase.FileService
 	Devices          *usecase.DeviceService
 	Favorites        *usecase.FavoriteService
+	Shares           *usecase.ShareService
+	Pins             *usecase.PinService
 	DeviceRepo       device.Repository
 	Logger           *slog.Logger
 	ServerID         []byte
@@ -80,7 +86,7 @@ type HandlerConfig struct {
 
 // NewHandler validates the config and returns a Handler ready to mount.
 func NewHandler(cfg HandlerConfig) (*Handler, error) {
-	if cfg.Pairing == nil || cfg.Files == nil || cfg.Devices == nil || cfg.Favorites == nil || cfg.DeviceRepo == nil {
+	if cfg.Pairing == nil || cfg.Files == nil || cfg.Devices == nil || cfg.Favorites == nil || cfg.Shares == nil || cfg.Pins == nil || cfg.DeviceRepo == nil {
 		return nil, fmt.Errorf("http: missing usecase dependency")
 	}
 	if cfg.Logger == nil {
@@ -94,6 +100,8 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		files:            cfg.Files,
 		devices:          cfg.Devices,
 		favorites:        cfg.Favorites,
+		shares:           cfg.Shares,
+		pins:             cfg.Pins,
 		deviceRP:         cfg.DeviceRepo,
 		log:              cfg.Logger,
 		serverID:         cfg.ServerID,
@@ -142,6 +150,14 @@ func (h *Handler) Register(r chi.Router) {
 		r.Delete("/api/v1/favorites/{id}", h.FavoriteDelete)
 		r.Post("/api/v1/favorites/{id}/items", h.FavoriteItemAdd)
 		r.Delete("/api/v1/favorites/{id}/items", h.FavoriteItemRemove)
+
+		// §10 shares — client-facing read-only discovery.
+		r.Get("/api/v1/shares", h.SharesListClient)
+
+		// §11 pins — per-device Quick Access bookmarks.
+		r.Get("/api/v1/pins", h.PinsList)
+		r.Post("/api/v1/pins", h.PinCreate)
+		r.Delete("/api/v1/pins", h.PinDelete)
 	})
 }
 
@@ -715,6 +731,132 @@ func (h *Handler) DeviceRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ──────────────────────────────────────────────────────────────────
+// §10 GET /api/v1/shares — client-facing share discovery
+// ──────────────────────────────────────────────────────────────────
+
+func (h *Handler) SharesListClient(w http.ResponseWriter, r *http.Request) {
+	shares, err := h.shares.List(r.Context())
+	if err != nil {
+		h.log.Error("shares list", slog.String("err", err.Error()))
+		WriteError(w, http.StatusInternalServerError, "internal_error", "shares list failed")
+		return
+	}
+	out := make([]map[string]any, 0, len(shares))
+	for _, s := range shares {
+		out = append(out, map[string]any{
+			"id":        b64url.EncodeToString(s.ID),
+			"name":      s.Name,
+			"icon":      s.Icon,
+			"read_only": s.ReadOnly,
+		})
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"shares": out})
+}
+
+// ──────────────────────────────────────────────────────────────────
+// §11 pins — per-device Quick Access bookmarks
+// ──────────────────────────────────────────────────────────────────
+
+func (h *Handler) PinsList(w http.ResponseWriter, r *http.Request) {
+	dev := DeviceFromContext(r.Context())
+	if dev == nil {
+		WriteError(w, http.StatusUnauthorized, "unauthorized", "missing device context")
+		return
+	}
+	pins, err := h.pins.ListByDevice(r.Context(), dev.ID)
+	if err != nil {
+		h.log.Error("pins list", slog.String("err", err.Error()))
+		WriteError(w, http.StatusInternalServerError, "internal_error", "pins list failed")
+		return
+	}
+	out := make([]map[string]any, 0, len(pins))
+	for _, p := range pins {
+		out = append(out, map[string]any{
+			"share_id":   b64url.EncodeToString(p.ShareID),
+			"path":       p.Path,
+			"label":      p.Label,
+			"sort_order": p.SortOrder,
+			"created_at": p.CreatedAt,
+		})
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"pins": out})
+}
+
+func (h *Handler) PinCreate(w http.ResponseWriter, r *http.Request) {
+	dev := DeviceFromContext(r.Context())
+	if dev == nil {
+		WriteError(w, http.StatusUnauthorized, "unauthorized", "missing device context")
+		return
+	}
+	var body struct {
+		ShareID   string `json:"share_id"`
+		Path      string `json:"path"`
+		Label     string `json:"label"`
+		SortOrder int    `json:"sort_order"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	shareID, err := decodeB64URL(body.ShareID)
+	if err != nil || len(shareID) != 16 {
+		WriteError(w, http.StatusBadRequest, "bad_request", "share_id must be 16-byte base64url")
+		return
+	}
+
+	p, err := h.pins.Create(r.Context(), dev.ID, shareID, body.Path, body.Label, body.SortOrder)
+	switch {
+	case errors.Is(err, pin.ErrDuplicate):
+		WriteError(w, http.StatusConflict, "pin_exists", "pin already exists for this path")
+	case errors.Is(err, share.ErrNotFound):
+		WriteError(w, http.StatusNotFound, "share_not_found", "share not found")
+	case errors.Is(err, usecase.ErrPinPathEmpty):
+		WriteError(w, http.StatusBadRequest, "bad_request", "path is required")
+	case err != nil:
+		h.log.Error("pin create", slog.String("err", err.Error()))
+		WriteError(w, http.StatusInternalServerError, "internal_error", "pin create failed")
+	default:
+		WriteJSON(w, http.StatusCreated, map[string]any{
+			"share_id":   b64url.EncodeToString(p.ShareID),
+			"path":       p.Path,
+			"label":      p.Label,
+			"sort_order": p.SortOrder,
+			"created_at": p.CreatedAt,
+		})
+	}
+}
+
+func (h *Handler) PinDelete(w http.ResponseWriter, r *http.Request) {
+	dev := DeviceFromContext(r.Context())
+	if dev == nil {
+		WriteError(w, http.StatusUnauthorized, "unauthorized", "missing device context")
+		return
+	}
+	shareIDStr := r.URL.Query().Get("share_id")
+	pathStr := r.URL.Query().Get("path")
+
+	shareID, err := decodeB64URL(shareIDStr)
+	if err != nil || len(shareID) != 16 {
+		WriteError(w, http.StatusBadRequest, "bad_request", "share_id must be 16-byte base64url")
+		return
+	}
+	if pathStr == "" {
+		WriteError(w, http.StatusBadRequest, "bad_request", "path is required")
+		return
+	}
+
+	err = h.pins.Delete(r.Context(), dev.ID, shareID, pathStr)
+	switch {
+	case errors.Is(err, pin.ErrNotFound):
+		WriteError(w, http.StatusNotFound, "pin_not_found", "pin not found")
+	case err != nil:
+		h.log.Error("pin delete", slog.String("err", err.Error()))
+		WriteError(w, http.StatusInternalServerError, "internal_error", "pin delete failed")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // ──────────────────────────────────────────────────────────────────

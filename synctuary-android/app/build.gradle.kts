@@ -103,6 +103,10 @@ dependencies {
     // DocumentFile: SAF tree-URI traversal for the local file browser
     implementation(libs.androidx.documentfile)
 
+    // Camera + barcode scanning (QR code pairing)
+    implementation(libs.bundles.camerax)
+    implementation(libs.mlkit.barcode)
+
     // Security: biometric prompt for the §8.9 hidden-list gate;
     // EncryptedSharedPreferences for the device_token; Bouncy Castle
     // for Ed25519 + HKDF (PROTOCOL §3 / §4.1).

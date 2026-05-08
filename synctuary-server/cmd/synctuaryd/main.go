@@ -46,6 +46,7 @@ import (
 	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/rate"
 	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/secret"
 	httpapi "github.com/synctuary/synctuary-server/internal/adapter/interface/http"
+	adminapi "github.com/synctuary/synctuary-server/internal/adapter/interface/http/admin"
 	"github.com/synctuary/synctuary-server/internal/domain/device"
 	domainfile "github.com/synctuary/synctuary-server/internal/domain/file"
 	domainsecret "github.com/synctuary/synctuary-server/internal/domain/secret"
@@ -145,6 +146,8 @@ func main() {
 	deviceRepo := db.NewDeviceRepository(database)
 	fileRepo := db.NewFileRepository(database)
 	favoriteRepo := db.NewFavoriteRepository(database)
+	shareRepo := db.NewShareRepository(database)
+	pinRepo := db.NewPinRepository(database)
 	nonceStore := db.NewNonceStore(database)
 
 	storage, err := fs.NewFileStorage(cfg.Storage.RootPath, cfg.Storage.StagingPath, &shaResolver{repo: fileRepo, root: cfg.Storage.RootPath})
@@ -183,6 +186,28 @@ func main() {
 		logger.Error("favorite service init failed", "err", err)
 		os.Exit(1)
 	}
+	shareSvc, err := usecase.NewShareService(shareRepo, nil)
+	if err != nil {
+		logger.Error("share service init failed", "err", err)
+		os.Exit(1)
+	}
+	pinSvc, err := usecase.NewPinService(pinRepo, shareRepo, nil)
+	if err != nil {
+		logger.Error("pin service init failed", "err", err)
+		os.Exit(1)
+	}
+	adminSvc, err := usecase.NewAdminService(database, nil)
+	if err != nil {
+		logger.Error("admin service init failed", "err", err)
+		os.Exit(1)
+	}
+
+	// Auto-create default share from legacy storage.root_path.
+	if _, err := shareSvc.EnsureDefault(context.Background(), cfg.Storage.RootPath); err != nil {
+		logger.Error("default share init failed", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("shares initialized")
 
 	// ── HTTP handler ──────────────────────────────────────────────
 	handler, err := httpapi.NewHandler(httpapi.HandlerConfig{
@@ -190,6 +215,8 @@ func main() {
 		Files:            fileSvc,
 		Devices:          deviceSvc,
 		Favorites:        favoriteSvc,
+		Shares:           shareSvc,
+		Pins:             pinSvc,
 		DeviceRepo:       deviceRepo,
 		Logger:           logger,
 		ServerID:         serverID,
@@ -214,7 +241,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := newRouter(handler, logger)
+	// ── admin handler ────────────────────────────────────────────────
+	adminHandler, err := adminapi.NewHandler(adminapi.HandlerConfig{
+		Admin:       adminSvc,
+		Shares:      shareSvc,
+		Devices:     deviceSvc,
+		Logger:      logger,
+		ConfigToken: cfg.Admin.Token,
+		ListenAddr:  cfg.Server.Addr,
+		TLSEnabled:  cfg.Server.TLSCertPath != "",
+	})
+	if err != nil {
+		logger.Error("admin handler init failed", "err", err)
+		os.Exit(1)
+	}
+
+	router := newRouter(handler, adminHandler, logger)
 
 	// ── background GC ─────────────────────────────────────────────
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -283,7 +325,7 @@ func newLogger(cfg config.LogConfig) *slog.Logger {
 
 // newRouter builds the chi router and registers the PROTOCOL endpoint
 // set via Handler.Register.
-func newRouter(h *httpapi.Handler, logger *slog.Logger) http.Handler {
+func newRouter(h *httpapi.Handler, ah *adminapi.Handler, logger *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -292,6 +334,7 @@ func newRouter(h *httpapi.Handler, logger *slog.Logger) http.Handler {
 	r.Use(httpapi.RequestLogger(logger))
 
 	h.Register(r)
+	ah.Register(r)
 	return r
 }
 
