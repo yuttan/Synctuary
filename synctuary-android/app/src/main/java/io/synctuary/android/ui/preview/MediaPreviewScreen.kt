@@ -3,9 +3,8 @@ package io.synctuary.android.ui.preview
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -254,11 +253,11 @@ fun MediaPreviewScreen(
                     PlayerView(ctx).apply {
                         useController = false
                         setKeepContentOnPlayerReset(true)
-                        resizeMode = if (isFullscreen) androidx.media3.ui.ResizeMode.ZOOM else androidx.media3.ui.ResizeMode.FIT
+                        resizeMode = if (isFullscreen) androidx.media3.ui.PlayerView.ResizeMode.ZOOM else androidx.media3.ui.PlayerView.ResizeMode.FIT
                     }.also { it.player = exoPlayer }
                 },
                 update = { pv ->
-                    pv.resizeMode = if (isFullscreen) androidx.media3.ui.ResizeMode.ZOOM else androidx.media3.ui.ResizeMode.FIT
+                    pv.resizeMode = if (isFullscreen) androidx.media3.ui.PlayerView.ResizeMode.ZOOM else androidx.media3.ui.PlayerView.ResizeMode.FIT
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -386,22 +385,19 @@ fun MediaPreviewScreen(
                     .pointerInput(Unit) {
                         var dragStartX by remember { mutableFloatStateOf(0f) }
                         var isDragging by remember { mutableStateOf(false) }
+                        var isVertDragging by remember { mutableStateOf(false) }
+                        var vertDragSide: GestureDragType? = null
                         val dur = { state.duration.coerceAtLeast(1L) }
 
-                        detectHorizontalDragGestures(
-                            onStart = { dragStartX = it.x },
-                            onHorizontalDrag = { _, delta ->
-                                if (!isDragging && kotlin.math.abs(delta) > MIN_DRAG_DISTANCE_DP.dp.toPx()) {
-                                    isDragging = true
-                                    controlsVisible = true
-                                }
-                                if (isDragging) {
-                                    val startPos = dragStartX
-                                    val msPerPx = dur().toFloat() / size.width
-                                    val basePos = (exoPlayer.currentPosition - startPos * msPerPx).toLong()
-                                    val newPos = (basePos + delta * msPerPx).coerceIn(0L, dur())
-                                    seekFeedback = Pair(newPos, dur())
-                                }
+                        detectDragGestures(
+                            onStart = { offset ->
+                                dragStartX = offset.x
+                                val midX = size.width / 2f
+                                vertDragSide = if (offset.x < midX) GestureDragType.BRIGHTNESS else GestureDragType.VOLUME
+                            },
+                            onDragCancel = {
+                                isDragging = false
+                                isVertDragging = false
                             },
                             onDragEnd = {
                                 if (isDragging) {
@@ -413,70 +409,73 @@ fun MediaPreviewScreen(
                                         seekFeedback = null
                                     }
                                 }
-                            },
-                        )
-                    }
-                    .pointerInput(Unit) {
-                        var dragStartY by remember { mutableFloatStateOf(0f) }
-                        var isVertDragging by remember { mutableStateOf(false) }
-                        var vertDragSide: GestureDragType? = null
-
-                        detectVerticalDragGestures(
-                            onStart = {
-                                dragStartY = it.y
-                                val midX = size.width / 2f
-                                vertDragSide = if (it.x < midX) GestureDragType.BRIGHTNESS else GestureDragType.VOLUME
-                            },
-                            onVerticalDrag = { _, delta ->
-                                if (!isVertDragging && kotlin.math.abs(delta) > MIN_DRAG_DISTANCE_DP.dp.toPx()) {
-                                    isVertDragging = true
-                                    controlsVisible = true
-                                }
-                                if (isVertDragging) {
-                                    // delta is positive when dragging down, negative when up
-                                    val sensitivity = 0.003f
-                                    val change = (-delta) * sensitivity
-
-                                    when (vertDragSide) {
-                                        GestureDragType.BRIGHTNESS -> {
-                                            activity?.window?.let { window ->
-                                                val attrs = window.attributes
-                                                val currentBrightness = attrs.screenBrightness.coerceIn(-0.1f, 1f)
-                                                val newBrightness = (currentBrightness + change).coerceIn(-0.1f, 1f)
-                                                attrs.screenBrightness = newBrightness
-                                                window.attributes = attrs
-
-                                                overlayFeedback = OverlayFeedback(
-                                                    type = GestureDragType.BRIGHTNESS,
-                                                    value = when {
-                                                        newBrightness < 0 -> -1f
-                                                        else -> newBrightness
-                                                    },
-                                                )
-                                            }
-                                        }
-                                        GestureDragType.VOLUME -> {
-                                            val am = context.getSystemService(
-                                                android.content.Context.AUDIO_SERVICE
-                                            ) as android.media.AudioManager
-                                            val maxVol = am.streamVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                                            val currentVol = am.streamVolume(android.media.AudioManager.STREAM_MUSIC)
-                                            val newVol = (currentVol + change * maxVol).coerceIn(0f, maxVol.toFloat())
-                                            overlayFeedback = OverlayFeedback(
-                                                type = GestureDragType.VOLUME,
-                                                value = newVol / maxVol,
-                                            )
-                                        }
-                                        else -> {}
-                                    }
-                                }
-                            },
-                            onDragEnd = {
                                 if (isVertDragging) {
                                     isVertDragging = false
                                     scope.launch {
                                         delay(1000L)
                                         overlayFeedback = null
+                                    }
+                                }
+                            },
+                            onDrag = { change, delta ->
+                                val absDx = kotlin.math.abs(delta.x)
+                                val absDy = kotlin.math.abs(delta.y)
+
+                                if (absDx > MIN_DRAG_DISTANCE_DP.dp.toPx() && absDx > absDy) {
+                                    if (!isDragging && !isVertDragging) {
+                                        isDragging = true
+                                        controlsVisible = true
+                                    }
+                                    if (isDragging) {
+                                        val startPos = dragStartX
+                                        val msPerPx = dur().toFloat() / size.width
+                                        val basePos = (exoPlayer.currentPosition - startPos * msPerPx).toLong()
+                                        val newPos = (basePos + delta.x * msPerPx).toLong().coerceIn(0L, dur())
+                                        seekFeedback = Pair(newPos, dur())
+                                    }
+                                }
+
+                                if (absDy > MIN_DRAG_DISTANCE_DP.dp.toPx() && absDy > absDx) {
+                                    if (!isVertDragging && !isDragging) {
+                                        isVertDragging = true
+                                        controlsVisible = true
+                                    }
+                                    if (isVertDragging) {
+                                        val sensitivity = 0.003f
+                                        val changeVal = (-delta.y) * sensitivity
+
+                                        when (vertDragSide) {
+                                            GestureDragType.BRIGHTNESS -> {
+                                                activity?.window?.let { window ->
+                                                    val attrs = window.attributes
+                                                    val currentBrightness = attrs.screenBrightness.coerceIn(-0.1f, 1f)
+                                                    val newBrightness = (currentBrightness + changeVal).coerceIn(-0.1f, 1f)
+                                                    attrs.screenBrightness = newBrightness
+                                                    window.attributes = attrs
+
+                                                    overlayFeedback = OverlayFeedback(
+                                                        type = GestureDragType.BRIGHTNESS,
+                                                        value = when {
+                                                            newBrightness < 0 -> -1f
+                                                            else -> newBrightness
+                                                        },
+                                                    )
+                                                }
+                                            }
+                                            GestureDragType.VOLUME -> {
+                                                val am = context.getSystemService(
+                                                    android.content.Context.AUDIO_SERVICE
+                                                ) as android.media.AudioManager
+                                                val maxVol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                                                val currentVol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                                                val newVol = (currentVol + changeVal * maxVol).coerceIn(0f, maxVol.toFloat())
+                                                overlayFeedback = OverlayFeedback(
+                                                    type = GestureDragType.VOLUME,
+                                                    value = newVol / maxVol,
+                                                )
+                                            }
+                                            else -> {}
+                                        }
                                     }
                                 }
                             },
