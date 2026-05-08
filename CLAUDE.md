@@ -4,7 +4,7 @@
 > not to break" briefing for any new Claude Code session picking up the
 > Synctuary project. Update it in lock-step with the architecture.
 
-**Last updated**: 2026-05-03 (after Android polish merge / PR #18)
+**Last updated**: 2026-05-08 (after admin UI + shares/pins + video player PR #24/#26)
 **Repo**: https://github.com/yuttan/Synctuary (public, Apache-2.0)
 
 ---
@@ -19,7 +19,7 @@ to be implementable by third parties.
 Read in order to onboard:
 
 1. [`SPEC.md`](./SPEC.md) — vision, components, license decisions, roadmap
-2. [`PROTOCOL.md`](./PROTOCOL.md) — wire spec v0.2.3 (§1-§9)
+2. [`PROTOCOL.md`](./PROTOCOL.md) — wire spec v0.3.0 (§1-§11, shares + pins)
 3. [`arch_saya_go_server_v3.md`](./arch_saya_go_server_v3.md) — server-side architecture
 4. [`docs/android-ui-mockups.html`](./docs/android-ui-mockups.html) — 14 screens of Material 3 dark mockups
 5. [`README.md`](./README.md) — quick start + contributor flow
@@ -63,12 +63,18 @@ Synctuary/
 │   └── internal/
 │       ├── domain/                    ← entities + interfaces (no impl deps)
 │       │   ├── device/, file/, nonce/, rate/, secret/, favorite/
+│       │   ├── share/                 ← Share entity + repository (§10)
+│       │   └── pin/                   ← Pin entity + repository (§11)
 │       ├── usecase/                   ← business logic
 │       │   ├── pairing.go, file_service.go, device_service.go, favorite_service.go
+│       │   ├── share_service.go       ← multi-drive share CRUD
+│       │   ├── pin_service.go         ← per-device quick access pins
+│       │   └── admin_service.go       ← admin auth (bcrypt + session tokens)
 │       ├── adapter/
 │       │   ├── infrastructure/        ← impl: db (SQLite/modernc), fs, crypto, rate, secret
 │       │   └── interface/http/        ← chi router + handlers + middleware
-│       ├── migrations/                ← goose SQL: 001_init / 002_uploads_active / 003_favorites
+│       │       └── admin/             ← admin Web UI (Preact/Vite/Tailwind, go:embed)
+│       ├── migrations/                ← goose SQL: 001-005 (init, uploads, favorites, shares, pins)
 │       └── integration/               ← end-to-end tests booting httptest.Server
 │
 └── synctuary-android/                 ← Android client, Apache-2.0
@@ -103,9 +109,9 @@ Synctuary/
             │   │   │   └── DevicesRepository.kt     ← §7 device management
             │   │   └── ui/
             │   │       ├── navigation/              ← NavRoutes + BottomNavBar
-            │   │       ├── onboarding/              ← screens 1-3 + OnboardingViewModel
+            │   │       ├── onboarding/              ← screens 1-3 + QrScannerScreen + OnboardingViewModel
             │   │       ├── files/                   ← FileBrowser + ActionSheet + Move/Details dialogs + ViewModel
-            │   │       ├── preview/                 ← ImagePreview + MediaPreview (Coil/ExoPlayer)
+            │   │       ├── preview/                 ← ImagePreview + MediaPreview + VideoPlayerViewModel (A-B loop, frame step)
             │   │       ├── favorites/               ← FavoritesScreen + ListDetail + AddToFavorites + BiometricHelper
             │   │       ├── devices/                 ← DevicesScreen + ViewModel (screen 6)
             │   │       ├── settings/                ← SettingsScreen + ViewModel (screen 7)
@@ -140,6 +146,12 @@ Synctuary/
 9. **Right-handed thumb optimization**: bottom navigation order is `Settings → Devices → Favorites → Files` (most-used on the right). Left-hand mode toggle is a v0.6 UI feature.
 
 10. **Branch protection model**: 5 required status checks, no admin bypass, ALL workflows have empty `paths:` filter (see §5 below for why).
+
+11. **Admin Web UI** (`/admin/`): Preact + Vite + Tailwind CSS, embedded into Go binary via `//go:embed dist/*`. Auth: bcrypt password hash in `server_meta` table + random 32-byte session tokens (not JWT). Config token via `admin.token` for API automation. The `go.yml` lint job must `npm ci && npm run build` the frontend before `golangci-lint` runs, or the embed directive fails.
+
+12. **Multi-drive Shares** (`PROTOCOL §10`): named host directories exposed to clients. Each share has a 16-byte binary ID. The `share` query parameter scopes all §6 file operations. A default share provides backward compatibility with pre-v0.3.0 clients.
+
+13. **Pins / Quick Access** (`PROTOCOL §11`): per-device directory bookmarks within shares. Composite key `(device_id, share_id, path)`. No server-side limit on pin count.
 
 ## 4. Local development environment (Windows file-server, 2026-04-30)
 
@@ -257,36 +269,61 @@ own implementation (write a one-shot `*_test.go` that does
 checksum-bound last words; getting one wrong fails the checksum, not the
 seed comparison. Real Trezor vector for 0x80×32: last word is `bless`.
 
+### 6.7 media3 ResizeMode is not a standalone class (Android, 2026-05-08)
+
+`androidx.media3.ui.ResizeMode` does not exist. Use
+`AspectRatioFrameLayout.RESIZE_MODE_FIT` / `RESIZE_MODE_ZOOM` instead.
+Similarly, `detectDragGestures` uses `onDragStart` (not `onStart`), and
+`remember {}` cannot be called inside `pointerInput` (not a `@Composable`
+scope — use plain local variables).
+
+### 6.8 golangci-lint needs frontend build for go:embed (Server, 2026-05-08)
+
+The admin UI uses `//go:embed dist/*`. If the `dist/` directory doesn't
+exist, `golangci-lint` fails with "no matching files found". The CI lint
+job must install Node.js and run `npm ci && npm run build` in
+`synctuary-server/web/admin/` before linting.
+
+### 6.9 PlaybackParameters pitch must be > 0 (Android, 2026-05-08)
+
+`PlaybackParameters(speed, pitch)` requires both values `> 0.0`. Using
+`old?.pitch ?: 0f` triggers an Android lint Range error. Default to `1f`.
+
 ## 7. Phase status (what's done, what's next)
 
-### Done (v0.5 ＝ 2026-05-03)
-- ✅ Server: full PROTOCOL §1-§9 implementation, including §8 favorites
+### Done (v0.6 = 2026-05-08)
+- ✅ Server: full PROTOCOL §1-§11 implementation (§8 favorites, §10 shares, §11 pins)
+- ✅ Server: admin Web UI — Preact/Vite/Tailwind, password auth, dashboard/shares/devices/pairing/settings (PR #26)
+- ✅ Server: multi-drive shares + pins domain/usecase/repository/handler (PR #26)
 - ✅ Server: container image published to GHCR (`ghcr.io/yuttan/synctuary`, multi-arch)
 - ✅ Server: deploy artifacts (Dockerfile / docker-compose.yml / systemd unit / TLS guide)
 - ✅ Server: build provenance via `-ldflags -X main.serverVersion=... -X main.commit=...`
 - ✅ Server: v0.5 — on-demand SHA-256 for `?hash=true`, dedup tracing (slog), sync_copy benchmarks, functional-options `NewFileService` (PR #20)
 - ✅ Android: skeleton (Compose / M3 dark / brand) — Phase 1
 - ✅ Android: crypto (BC Ed25519, HKDF, BIP-39) + network (Retrofit) + storage (EncryptedSharedPreferences) + PairingRepository — Phase 2
-- ✅ Android: onboarding UI (mockup screens 1-3) + NavHost + OnboardingViewModel — Phase 2.2 (PR #11)
+- ✅ Android: onboarding UI (mockup screens 1-3) + QR code scanner (CameraX + ML Kit) + NavHost + OnboardingViewModel — Phase 2.2 (PR #11, #26)
 - ✅ Android: file browser (mockup screens 4+8) + bearer-auth interceptor + bottom nav + FileRepository — Phase 3 (PR #12)
 - ✅ Android: download to local + chunked upload engine — Phase 4.1 (PR #14)
 - ✅ Android: streaming preview (Coil for images, ExoPlayer for video/audio) — Phase 4.2 (PR #15)
+- ✅ Android: A-B loop repeat + frame-by-frame stepping + VideoPlayerViewModel (PR #24)
 - ✅ Android: favorites + hidden lists + BiometricPrompt gate (mockup screens 11-14) — Phase 5 (PR #16)
 - ✅ Android: devices list + settings screens (mockup screens 6-7) — Phase 6 (PR #17)
 - ✅ Android: polish — left-hand mode, file search, move/details actions, favorites detail view (PR #18)
+- ✅ Android: download folder selection + local file browser (PR #22)
 - ✅ Android: unit tests — ViewModel tests (MockK + coroutines-test), DTO serialization, TransferState, UiState logic (PR #19)
 - ✅ CI: 5 required checks, branch protection ruleset, GHCR publish on tags
 - ✅ Android UI mockups: 14 screens of Material 3 dark
-- ✅ Documentation: SPEC.md, PROTOCOL.md v0.2.3, deploy/README.md, this file
+- ✅ Documentation: SPEC.md, PROTOCOL.md v0.3.0 (§10 Shares, §11 Pins), deploy/README.md, this file
 
 ### Next up (priority order)
-1. **Real-device integration testing** — Android APK + running server on the LAN, end-to-end §4 pairing flow verification.
-2. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
-3. **iOS client** — deferred until test device is available.
+1. **Remote access** — WireGuard VPN + IPv6 direct dual-mode (Issue #25 spec complete, implementation pending).
+2. **Real-device integration testing** — Android APK + running server on the LAN, end-to-end §4 pairing flow verification.
+3. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+4. **iOS client** — deferred until test device is available.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
-- **First production tag** (`v0.5.0`): user pushes `git tag v0.5.0 && git push origin v0.5.0` when comfortable.
+- **First production tag** (`v0.6.0`): user pushes `git tag v0.6.0 && git push origin v0.6.0` when comfortable.
 - **Real-device pair test**: install debug APK on a phone, point at a running server, confirm the §4 flow works end-to-end (matters for sanity-checking the EncryptedSharedPreferences path on a real Keystore).
 
 ## 8. Subagent (サヤ) usage
