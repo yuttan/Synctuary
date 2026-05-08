@@ -25,10 +25,10 @@ type AdminService struct {
 }
 
 var (
-	ErrAdminNotSetUp      = errors.New("admin_not_set_up")
-	ErrAdminAlreadySetUp  = errors.New("admin_already_set_up")
-	ErrAdminBadPassword   = errors.New("admin_bad_password")
-	ErrAdminPasswordShort = errors.New("admin_password_too_short")
+	ErrAdminNotSetUp       = errors.New("admin_not_set_up")
+	ErrAdminAlreadySetUp   = errors.New("admin_already_set_up")
+	ErrAdminBadPassword    = errors.New("admin_bad_password")
+	ErrAdminPasswordShort  = errors.New("admin_password_too_short")
 	ErrAdminSessionExpired = errors.New("admin_session_expired")
 )
 

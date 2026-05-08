@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/synctuary/synctuary-server/internal/domain/share"
@@ -128,7 +129,7 @@ func (r *ShareRepository) Update(ctx context.Context, id []byte, patch share.Sha
 	args = append(args, now)
 	args = append(args, id)
 
-	query := "UPDATE shares SET " + joinStrings(sets, ", ") + " WHERE id = ?"
+	query := "UPDATE shares SET " + joinStrings(sets, ", ") + " WHERE id = ?" //nolint:gosec // G202: column names are hardcoded, values use placeholders
 	res, err := r.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -163,7 +164,7 @@ func scanShare(sc scanner) (*share.Share, error) {
 		&s.SortOrder, &isDefault, &s.CreatedAt, &s.ModifiedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, share.ErrNotFound
 		}
 		return nil, err

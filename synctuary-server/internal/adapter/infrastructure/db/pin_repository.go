@@ -84,7 +84,7 @@ func (r *PinRepository) Update(ctx context.Context, deviceID, shareID []byte, pa
 	}
 
 	args = append(args, deviceID, shareID, path)
-	query := "UPDATE pins SET " + joinStrings(sets, ", ") +
+	query := "UPDATE pins SET " + joinStrings(sets, ", ") + //nolint:gosec // G202: column names are hardcoded, values use placeholders
 		" WHERE device_id = ? AND share_id = ? AND path = ?"
 
 	res, err := r.db.ExecContext(ctx, query, args...)

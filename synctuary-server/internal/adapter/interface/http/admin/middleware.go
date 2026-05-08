@@ -36,7 +36,7 @@ func SessionAuth(admin *usecase.AdminService, configToken string) func(http.Hand
 					bearer := strings.TrimPrefix(auth, "Bearer ")
 					// Check against pre-shared config token.
 					if configToken != "" && bearer == configToken {
-						ctx := context.WithValue(r.Context(), ctxKeyAdminToken, "__config_token__")
+						ctx := context.WithValue(r.Context(), ctxKeyAdminToken, configTokenSentinel)
 						next.ServeHTTP(w, r.WithContext(ctx))
 						return
 					}

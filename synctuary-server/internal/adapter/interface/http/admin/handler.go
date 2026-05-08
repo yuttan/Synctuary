@@ -24,13 +24,17 @@ import (
 
 const maxAdminBody = 1 << 20 // 1 MiB
 
+// configTokenSentinel is a marker value used when the admin
+// authenticated via the pre-shared config token rather than a
+// login-issued session.  Not a real credential.
+const configTokenSentinel = "_cfg_tok_" //nolint:gosec // G101: sentinel marker, not a credential
+
 // Handler is the admin Web UI HTTP handler.
 type Handler struct {
-	admin  *usecase.AdminService
-	shares *usecase.ShareService
-	devices *usecase.DeviceService
-	log    *slog.Logger
-
+	admin       *usecase.AdminService
+	shares      *usecase.ShareService
+	devices     *usecase.DeviceService
+	log         *slog.Logger
 	configToken string
 	listenAddr  string
 	tlsEnabled  bool
@@ -191,7 +195,7 @@ func (h *Handler) Session(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	token := AdminTokenFromContext(r.Context())
-	if token != "" && token != "__config_token__" {
+	if token != "" && token != configTokenSentinel {
 		_ = h.admin.Logout(r.Context(), token)
 	}
 	http.SetCookie(w, &http.Cookie{
