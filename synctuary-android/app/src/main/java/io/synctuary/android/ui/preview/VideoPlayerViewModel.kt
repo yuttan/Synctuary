@@ -48,6 +48,7 @@ data class ABLoopState(
 
 val DEFAULT_SPEEDS = floatArrayOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f)
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class VideoPlayerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val secretStore = io.synctuary.android.data.secret.SecretStore.create(application)
