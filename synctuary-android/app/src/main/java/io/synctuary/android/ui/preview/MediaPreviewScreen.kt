@@ -389,8 +389,8 @@ fun MediaPreviewScreen(
                         val dur = { state.duration.coerceAtLeast(1L) }
 
                         detectHorizontalDragGestures(
-                            onPressDown = { dragStartX = it?.x ?: 0f },
-                            onDragChange = { delta ->
+                            onStart = { dragStartX = it.x },
+                            onHorizontalDrag = { delta ->
                                 if (!isDragging && abs(delta) > MIN_DRAG_DISTANCE_DP.dp.toPx()) {
                                     isDragging = true
                                     controlsVisible = true
@@ -422,12 +422,12 @@ fun MediaPreviewScreen(
                         var vertDragSide: GestureDragType? = null
 
                         detectVerticalDragGestures(
-                            onPressDown = {
-                                dragStartY = it?.y ?: 0f
+                            onStart = {
+                                dragStartY = it.y
                                 val midX = size.width / 2f
-                                vertDragSide = if ((it?.x ?: 0f) < midX) GestureDragType.BRIGHTNESS else GestureDragType.VOLUME
+                                vertDragSide = if (it.x < midX) GestureDragType.BRIGHTNESS else GestureDragType.VOLUME
                             },
-                            onDragChange = { delta ->
+                            onVerticalDrag = { delta ->
                                 if (!isVertDragging && abs(delta) > MIN_DRAG_DISTANCE_DP.dp.toPx()) {
                                     isVertDragging = true
                                     controlsVisible = true

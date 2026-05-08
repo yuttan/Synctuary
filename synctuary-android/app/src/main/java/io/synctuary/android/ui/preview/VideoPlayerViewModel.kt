@@ -68,7 +68,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun buildPlayer(path: String, contentUrl: String): ExoPlayer {
         currentPath = path
         val httpFactory = OkHttpDataSource.Factory(authenticatedClient)
-        val player = ExoPlayer.Builder(application)
+        val player = ExoPlayer.Builder(getApplication())
             .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
             .build()
 
@@ -123,7 +123,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 @Player.DiscontinuityReason reason: Int,
             ) {
                 // Save resume position on user-initiated seek
-                if (reason == Player.DISCONTINUITY_REASON_USER_SEEK) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                     saveResumePosition(newPosition.positionMs)
                 }
             }
@@ -166,9 +166,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     fun cycleSpeed(): Float {
         val p = exoPlayer ?: return 1f
         val current = p.playbackParameters.speed
-        val currentIndex = DEFAULT_SPEEDS.indexOfFirst { abs(it - current) < 0.01 }.let { idx ->
-            if (idx < 0) 2 // default to index 2 (1x)
-        }
+        val currentIndex = DEFAULT_SPEEDS.indexOfFirst { abs(it - current) < 0.01 }.takeIf { it >= 0 } ?: 2
         val nextIndex = (currentIndex + 1) % DEFAULT_SPEEDS.size
         val newSpeed = DEFAULT_SPEEDS[nextIndex]
         val old = p.playbackParameters
