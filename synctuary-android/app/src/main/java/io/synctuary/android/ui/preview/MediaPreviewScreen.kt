@@ -73,6 +73,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
@@ -89,7 +90,7 @@ import androidx.core.view.updatePadding
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-// ResizeMode accessed via PlayerView.resizeMode property (enum constants: FIT=0, ZOOM=1)
+import androidx.media3.ui.ResizeMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -253,11 +254,11 @@ fun MediaPreviewScreen(
                     PlayerView(ctx).apply {
                         useController = false
                         setKeepContentOnPlayerReset(true)
-                        resizeMode = if (isFullscreen) androidx.media3.ui.PlayerView.ResizeMode.ZOOM else androidx.media3.ui.PlayerView.ResizeMode.FIT
+                        resizeMode = if (isFullscreen) ResizeMode.ZOOM else ResizeMode.FIT
                     }.also { it.player = exoPlayer }
                 },
                 update = { pv ->
-                    pv.resizeMode = if (isFullscreen) androidx.media3.ui.PlayerView.ResizeMode.ZOOM else androidx.media3.ui.PlayerView.ResizeMode.FIT
+                    pv.resizeMode = if (isFullscreen) ResizeMode.ZOOM else ResizeMode.FIT
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -390,7 +391,7 @@ fun MediaPreviewScreen(
                         val dur = { state.duration.coerceAtLeast(1L) }
 
                         detectDragGestures(
-                            onStart = { offset ->
+                            onStart = { offset: Offset ->
                                 dragStartX = offset.x
                                 val midX = size.width / 2f
                                 vertDragSide = if (offset.x < midX) GestureDragType.BRIGHTNESS else GestureDragType.VOLUME
@@ -417,7 +418,7 @@ fun MediaPreviewScreen(
                                     }
                                 }
                             },
-                            onDrag = { change, delta ->
+                            onDrag = { _change: androidx.compose.ui.input.pointer.PointerInputChange, delta: Offset ->
                                 val absDx = kotlin.math.abs(delta.x)
                                 val absDy = kotlin.math.abs(delta.y)
 
