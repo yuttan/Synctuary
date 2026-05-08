@@ -488,7 +488,7 @@ fun MediaPreviewScreen(
             onSpeedSelected = { speed ->
                 val p = exoPlayer
                 val old = p?.playbackParameters
-                p?.playbackParameters = androidx.media3.common.PlaybackParameters(speed, old?.pitch ?: 0f)
+                p?.playbackParameters = androidx.media3.common.PlaybackParameters(speed, old?.pitch ?: 1f)
                 currentSpeed = speed
                 showSpeedDialog = false
             },
