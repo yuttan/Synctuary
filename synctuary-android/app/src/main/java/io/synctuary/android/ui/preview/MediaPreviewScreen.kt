@@ -390,8 +390,8 @@ fun MediaPreviewScreen(
 
                         detectHorizontalDragGestures(
                             onStart = { dragStartX = it.x },
-                            onHorizontalDrag = { delta ->
-                                if (!isDragging && abs(delta) > MIN_DRAG_DISTANCE_DP.dp.toPx()) {
+                            onHorizontalDrag = { _, delta ->
+                                if (!isDragging && kotlin.math.abs(delta) > MIN_DRAG_DISTANCE_DP.dp.toPx()) {
                                     isDragging = true
                                     controlsVisible = true
                                 }
@@ -427,8 +427,8 @@ fun MediaPreviewScreen(
                                 val midX = size.width / 2f
                                 vertDragSide = if (it.x < midX) GestureDragType.BRIGHTNESS else GestureDragType.VOLUME
                             },
-                            onVerticalDrag = { delta ->
-                                if (!isVertDragging && abs(delta) > MIN_DRAG_DISTANCE_DP.dp.toPx()) {
+                            onVerticalDrag = { _, delta ->
+                                if (!isVertDragging && kotlin.math.abs(delta) > MIN_DRAG_DISTANCE_DP.dp.toPx()) {
                                     isVertDragging = true
                                     controlsVisible = true
                                 }
@@ -467,6 +467,7 @@ fun MediaPreviewScreen(
                                                 value = newVol / maxVol,
                                             )
                                         }
+                                        else -> {}
                                     }
                                 }
                             },
@@ -957,6 +958,7 @@ private fun SpeedSelectionDialog(
 // Video Info Dialog — shows resolution, FPS, duration
 // ============================================================================
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VideoInfoDialog(
     fileName: String,
