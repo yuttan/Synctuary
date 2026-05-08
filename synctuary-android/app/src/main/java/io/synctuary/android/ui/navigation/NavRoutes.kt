@@ -28,6 +28,9 @@ sealed class NavRoute(val route: String) {
             "favorites/detail?id=${android.net.Uri.encode(id)}&name=${android.net.Uri.encode(name)}"
     }
 
+    // QR scanner (onboarding)
+    data object QrScanner : NavRoute("onboarding/qr_scanner")
+
     // Debug
     data object PairingDebug : NavRoute("debug/pairing")
 }

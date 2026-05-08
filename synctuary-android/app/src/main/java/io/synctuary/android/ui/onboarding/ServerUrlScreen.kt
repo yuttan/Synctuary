@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 fun ServerUrlScreen(
     viewModel: OnboardingViewModel,
     onNext: () -> Unit,
+    onScanQr: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -143,8 +144,7 @@ fun ServerUrlScreen(
             Spacer(Modifier.height(12.dp))
 
             TextButton(
-                onClick = { /* QR scan — future */ },
-                enabled = false,
+                onClick = onScanQr,
             ) {
                 Icon(
                     imageVector = Icons.Filled.QrCodeScanner,

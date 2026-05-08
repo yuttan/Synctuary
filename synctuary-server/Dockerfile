@@ -20,6 +20,16 @@
 #     synctuary-server:dev
 
 
+# ---------- frontend ----------
+FROM node:20-alpine AS frontend
+
+WORKDIR /src/web/admin
+COPY web/admin/package.json web/admin/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY web/admin/ ./
+RUN npm run build
+
+
 # ---------- builder ----------
 FROM golang:1.22-alpine AS builder
 
@@ -34,6 +44,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY . .
+# Overlay the frontend build output from the previous stage.
+COPY --from=frontend /src/internal/adapter/interface/http/admin/dist/ \
+     ./internal/adapter/interface/http/admin/dist/
 
 # Build a fully-static binary. -trimpath drops local filesystem paths
 # from the binary so distinct build hosts produce identical bytes;

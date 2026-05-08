@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Camera: QR code scanning for server pairing. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <!-- BiometricPrompt requires this; falls back to PIN/passcode automatically. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 

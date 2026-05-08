@@ -28,6 +28,7 @@ type Config struct {
 	Upload   UploadConfig   `koanf:"upload"`
 	Pairing  PairingConfig  `koanf:"pairing"`
 	Log      LogConfig      `koanf:"log"`
+	Admin    AdminConfig    `koanf:"admin"`
 }
 
 type ServerConfig struct {
@@ -72,6 +73,14 @@ type PairingConfig struct {
 type LogConfig struct {
 	Level  string `koanf:"level"`  // "debug" | "info" | "warn" | "error"
 	Format string `koanf:"format"` // "json" | "text"
+}
+
+// AdminConfig carries settings for the embedded admin Web UI.
+type AdminConfig struct {
+	// Token is an optional pre-shared bearer token for headless / API
+	// automation access to /admin/api/* endpoints. When empty, only
+	// password-based login is supported.
+	Token string `koanf:"token"`
 }
 
 // Defaults returns a Config populated with the compiled-in baseline used

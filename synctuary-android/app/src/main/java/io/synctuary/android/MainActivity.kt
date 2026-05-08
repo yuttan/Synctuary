@@ -46,6 +46,7 @@ import io.synctuary.android.ui.navigation.NavRoute
 import io.synctuary.android.ui.onboarding.MnemonicScreen
 import io.synctuary.android.ui.onboarding.OnboardingViewModel
 import io.synctuary.android.ui.onboarding.PairingProgressScreen
+import io.synctuary.android.ui.onboarding.QrScannerScreen
 import io.synctuary.android.ui.onboarding.ServerUrlScreen
 import io.synctuary.android.ui.preview.ImagePreviewScreen
 import io.synctuary.android.ui.preview.MediaPreviewScreen
@@ -145,6 +146,17 @@ private fun SynctuaryNavHost() {
                 ServerUrlScreen(
                     viewModel = onboardingVm,
                     onNext = { navController.navigate(NavRoute.Mnemonic.route) },
+                    onScanQr = { navController.navigate(NavRoute.QrScanner.route) },
+                )
+            }
+
+            composable(NavRoute.QrScanner.route) {
+                QrScannerScreen(
+                    onScanned = { url ->
+                        onboardingVm.setServerUrl(url)
+                        navController.popBackStack()
+                    },
+                    onBack = { navController.popBackStack() },
                 )
             }
 

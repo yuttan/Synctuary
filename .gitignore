@@ -88,3 +88,8 @@ pending_resume.md
 # ---- Build / lint caches ----
 .golangci-cache/
 node_modules/
+
+# ---- Admin Web UI build output ----
+# Vite builds into the Go embed directory; only .gitkeep is tracked.
+synctuary-server/internal/adapter/interface/http/admin/dist/assets/
+synctuary-server/internal/adapter/interface/http/admin/dist/index.html

@@ -123,6 +123,8 @@ func newTestEnv(t *testing.T, opts ...testEnvOpts) *testEnv {
 	deviceRepo := db.NewDeviceRepository(database)
 	fileRepo := db.NewFileRepository(database)
 	favoriteRepo := db.NewFavoriteRepository(database)
+	shareRepo := db.NewShareRepository(database)
+	pinRepo := db.NewPinRepository(database)
 	nonceStore := db.NewNonceStore(database)
 
 	storage, err := fs.NewFileStorage(storeRoot, stagingRoot, &shaResolver{repo: fileRepo, root: storeRoot})
@@ -152,6 +154,14 @@ func newTestEnv(t *testing.T, opts ...testEnvOpts) *testEnv {
 	if err != nil {
 		t.Fatalf("favorite svc: %v", err)
 	}
+	shareSvc, err := usecase.NewShareService(shareRepo, nil)
+	if err != nil {
+		t.Fatalf("share svc: %v", err)
+	}
+	pinSvc, err := usecase.NewPinService(pinRepo, shareRepo, nil)
+	if err != nil {
+		t.Fatalf("pin svc: %v", err)
+	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler, err := httpapi.NewHandler(httpapi.HandlerConfig{
@@ -159,6 +169,8 @@ func newTestEnv(t *testing.T, opts ...testEnvOpts) *testEnv {
 		Files:            fileSvc,
 		Devices:          deviceSvc,
 		Favorites:        favoriteSvc,
+		Shares:           shareSvc,
+		Pins:             pinSvc,
 		DeviceRepo:       deviceRepo,
 		Logger:           logger,
 		ServerID:         serverID,
