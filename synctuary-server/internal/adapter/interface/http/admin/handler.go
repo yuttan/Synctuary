@@ -514,10 +514,10 @@ func (h *Handler) WGPeersList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeAdminJSON(w, http.StatusOK, map[string]any{
-		"peers":            out,
-		"enabled":          true,
+		"peers":             out,
+		"enabled":           true,
 		"server_public_key": h.wg.ServerPublicKey(),
-		"server_ip":        h.wg.ServerIP(),
+		"server_ip":         h.wg.ServerIP(),
 	})
 }
 

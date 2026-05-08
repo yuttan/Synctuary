@@ -55,11 +55,17 @@ func (r *WGPeerRepository) GetByID(ctx context.Context, id []byte) (*wgpeer.Peer
 }
 
 func (r *WGPeerRepository) ListActive(ctx context.Context) ([]wgpeer.Peer, error) {
-	return r.listWhere(ctx, "WHERE revoked_at IS NULL ORDER BY created_at ASC")
+	return r.scanPeers(ctx, `
+		SELECT id, public_key, assigned_ip, name, device_id, created_at, revoked_at
+		FROM wg_peers WHERE revoked_at IS NULL ORDER BY created_at ASC
+	`)
 }
 
 func (r *WGPeerRepository) ListAll(ctx context.Context) ([]wgpeer.Peer, error) {
-	return r.listWhere(ctx, "ORDER BY created_at ASC")
+	return r.scanPeers(ctx, `
+		SELECT id, public_key, assigned_ip, name, device_id, created_at, revoked_at
+		FROM wg_peers ORDER BY created_at ASC
+	`)
 }
 
 func (r *WGPeerRepository) AssignedIPs(ctx context.Context) ([]string, error) {
@@ -109,10 +115,8 @@ func (r *WGPeerRepository) Delete(ctx context.Context, id []byte) error {
 	return nil
 }
 
-func (r *WGPeerRepository) listWhere(ctx context.Context, clause string) ([]wgpeer.Peer, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, public_key, assigned_ip, name, device_id, created_at, revoked_at
-		FROM wg_peers `+clause) //nolint:gosec // G202: clause is hardcoded, never user input
+func (r *WGPeerRepository) scanPeers(ctx context.Context, query string) ([]wgpeer.Peer, error) {
+	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("db: ListWGPeers: %w", err)
 	}
