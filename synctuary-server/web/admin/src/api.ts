@@ -48,6 +48,15 @@ export const api = {
 
   // Pairing
   pairingInfo: () => request<PairingInfo>('GET', '/pairing-info'),
+
+  // Remote access
+  remoteAccess: () => request<RemoteAccessStatus>('GET', '/remote-access'),
+  ipv6Status: () => request<IPv6Status>('GET', '/ipv6/status'),
+
+  // WireGuard peers
+  wgPeers: () => request<WGPeersResponse>('GET', '/wireguard/peers'),
+  wgAddPeer: (name: string) => request<WGAddPeerResponse>('POST', '/wireguard/peers', { name }),
+  wgDeletePeer: (id: string) => request<{ ok: boolean }>('DELETE', `/wireguard/peers/${id}`),
 }
 
 export interface Device {
@@ -89,4 +98,53 @@ export interface Stats {
 export interface PairingInfo {
   url: string
   urls: string[]
+}
+
+export interface RemoteAccessStatus {
+  mode: string
+  ipv6?: {
+    guas: string[]
+    advertised_addr: string
+    require_tls: boolean
+    tls_enabled: boolean
+  }
+  wireguard?: {
+    listen_port: number
+    address: string
+    mtu: number
+    persistent_keepalive: number
+    server_public_key?: string
+    server_ip?: string
+  }
+}
+
+export interface IPv6Status {
+  mode: string
+  guas: string[]
+  advertised_addr: string
+  require_tls: boolean
+  tls_enabled: boolean
+  scheme: string
+  urls: string[]
+}
+
+export interface WGPeer {
+  id: string
+  public_key: string
+  assigned_ip: string
+  name: string
+  created_at: number
+  revoked_at?: number
+}
+
+export interface WGPeersResponse {
+  peers: WGPeer[]
+  enabled: boolean
+  server_public_key?: string
+  server_ip?: string
+}
+
+export interface WGAddPeerResponse {
+  peer: WGPeer
+  config: string
 }
