@@ -373,9 +373,9 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeAdminJSON(w, http.StatusOK, map[string]any{
-		"active_devices":  activeDevices,
-		"total_devices":   len(devices),
-		"total_shares":    len(shares),
+		"active_devices": activeDevices,
+		"total_devices":  len(devices),
+		"total_shares":   len(shares),
 	})
 }
 
