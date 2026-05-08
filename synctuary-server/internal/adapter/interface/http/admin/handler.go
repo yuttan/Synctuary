@@ -20,6 +20,8 @@ import (
 	"github.com/synctuary/synctuary-server/internal/domain/device"
 	"github.com/synctuary/synctuary-server/internal/domain/share"
 	"github.com/synctuary/synctuary-server/internal/usecase"
+	"github.com/synctuary/synctuary-server/pkg/config"
+	"github.com/synctuary/synctuary-server/pkg/netutil"
 )
 
 const maxAdminBody = 1 << 20 // 1 MiB
@@ -31,24 +33,26 @@ const configTokenSentinel = "_cfg_tok_" //nolint:gosec // G101: sentinel marker,
 
 // Handler is the admin Web UI HTTP handler.
 type Handler struct {
-	admin       *usecase.AdminService
-	shares      *usecase.ShareService
-	devices     *usecase.DeviceService
-	log         *slog.Logger
-	configToken string
-	listenAddr  string
-	tlsEnabled  bool
+	admin        *usecase.AdminService
+	shares       *usecase.ShareService
+	devices      *usecase.DeviceService
+	log          *slog.Logger
+	configToken  string
+	listenAddr   string
+	tlsEnabled   bool
+	remoteAccess config.RemoteAccessConfig
 }
 
 // HandlerConfig is the constructor input for the admin handler.
 type HandlerConfig struct {
-	Admin       *usecase.AdminService
-	Shares      *usecase.ShareService
-	Devices     *usecase.DeviceService
-	Logger      *slog.Logger
-	ConfigToken string // optional pre-shared token for API automation
-	ListenAddr  string // e.g. ":8443"
-	TLSEnabled  bool
+	Admin        *usecase.AdminService
+	Shares       *usecase.ShareService
+	Devices      *usecase.DeviceService
+	Logger       *slog.Logger
+	ConfigToken  string // optional pre-shared token for API automation
+	ListenAddr   string // e.g. ":8443"
+	TLSEnabled   bool
+	RemoteAccess config.RemoteAccessConfig
 }
 
 // NewHandler validates the config and returns an admin Handler.
@@ -60,13 +64,14 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		return nil, fmt.Errorf("admin: missing logger")
 	}
 	return &Handler{
-		admin:       cfg.Admin,
-		shares:      cfg.Shares,
-		devices:     cfg.Devices,
-		log:         cfg.Logger,
-		configToken: cfg.ConfigToken,
-		listenAddr:  cfg.ListenAddr,
-		tlsEnabled:  cfg.TLSEnabled,
+		admin:        cfg.Admin,
+		shares:       cfg.Shares,
+		devices:      cfg.Devices,
+		log:          cfg.Logger,
+		configToken:  cfg.ConfigToken,
+		listenAddr:   cfg.ListenAddr,
+		tlsEnabled:   cfg.TLSEnabled,
+		remoteAccess: cfg.RemoteAccess,
 	}, nil
 }
 
@@ -102,6 +107,10 @@ func (h *Handler) Register(r chi.Router) {
 
 				// Pairing info (QR code data).
 				r.Get("/pairing-info", h.PairingInfo)
+
+				// Remote access status.
+				r.Get("/remote-access", h.RemoteAccessStatus)
+				r.Get("/ipv6/status", h.IPv6Status)
 			})
 		})
 
@@ -416,7 +425,7 @@ func (h *Handler) buildServerURLs(r *http.Request, scheme, port string) []string
 		}
 		seen[host] = true
 		u := scheme + "://" + host
-		if !isDefaultPort(scheme, port) {
+		if !netutil.IsDefaultPort(scheme, port) {
 			u += ":" + port
 		}
 		urls = append(urls, u)
@@ -456,8 +465,82 @@ func (h *Handler) buildServerURLs(r *http.Request, scheme, port string) []string
 	return urls
 }
 
-func isDefaultPort(scheme, port string) bool {
-	return (scheme == "https" && port == "443") || (scheme == "http" && port == "80")
+// ──────────────────────────────────────────────────────────────────
+// Remote Access Status
+// ──────────────────────────────────────────────────────────────────
+
+func (h *Handler) RemoteAccessStatus(w http.ResponseWriter, r *http.Request) {
+	mode := h.remoteAccess.Mode
+	status := map[string]any{
+		"mode": mode,
+	}
+	switch mode {
+	case "ipv6":
+		guas := netutil.DetectIPv6GUAs()
+		status["ipv6"] = map[string]any{
+			"guas":            guas,
+			"advertised_addr": h.remoteAccess.IPv6.AdvertisedAddress,
+			"require_tls":     h.remoteAccess.IPv6.RequireTLS,
+			"tls_enabled":     h.tlsEnabled,
+		}
+	case "wireguard":
+		status["wireguard"] = map[string]any{
+			"listen_port":          h.remoteAccess.WireGuard.ListenPort,
+			"address":              h.remoteAccess.WireGuard.Address,
+			"mtu":                  h.remoteAccess.WireGuard.MTU,
+			"persistent_keepalive": int64(h.remoteAccess.WireGuard.PersistentKeepalive.Seconds()),
+		}
+	}
+	writeAdminJSON(w, http.StatusOK, status)
+}
+
+func (h *Handler) IPv6Status(w http.ResponseWriter, r *http.Request) {
+	guas := netutil.DetectIPv6GUAs()
+	scheme := "http"
+	if h.tlsEnabled {
+		scheme = "https"
+	}
+
+	_, port, _ := net.SplitHostPort(h.listenAddr)
+	if port == "" {
+		port = "8443"
+	}
+
+	var urls []string
+	addr := h.remoteAccess.IPv6.AdvertisedAddress
+	if addr == "" {
+		for _, g := range guas {
+			host := g
+			if strings.Contains(g, ":") {
+				host = "[" + g + "]"
+			}
+			u := scheme + "://" + host
+			if !netutil.IsDefaultPort(scheme, port) {
+				u += ":" + port
+			}
+			urls = append(urls, u)
+		}
+	} else {
+		host := addr
+		if strings.Contains(addr, ":") {
+			host = "[" + addr + "]"
+		}
+		u := scheme + "://" + host
+		if !netutil.IsDefaultPort(scheme, port) {
+			u += ":" + port
+		}
+		urls = append(urls, u)
+	}
+
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"mode":            h.remoteAccess.Mode,
+		"guas":            guas,
+		"advertised_addr": addr,
+		"require_tls":     h.remoteAccess.IPv6.RequireTLS,
+		"tls_enabled":     h.tlsEnabled,
+		"scheme":          scheme,
+		"urls":            urls,
+	})
 }
 
 // ──────────────────────────────────────────────────────────────────

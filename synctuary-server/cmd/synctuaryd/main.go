@@ -53,6 +53,7 @@ import (
 	"github.com/synctuary/synctuary-server/internal/migrations"
 	"github.com/synctuary/synctuary-server/internal/usecase"
 	"github.com/synctuary/synctuary-server/pkg/config"
+	"github.com/synctuary/synctuary-server/pkg/netutil"
 )
 
 // protocolVersion is the wire spec the server implements. It's a
@@ -93,6 +94,39 @@ func main() {
 		"storage_root", cfg.Storage.RootPath,
 		"transport_profile", cfg.TransportProfile(),
 	)
+
+	// ── remote access mode validation ──────────────────────────────
+	var ipv6Addrs []string // populated when mode == "ipv6"
+	switch cfg.RemoteAccess.Mode {
+	case "disabled":
+		logger.Info("remote access disabled")
+
+	case "ipv6":
+		ipv6Addrs = netutil.DetectIPv6GUAs()
+		if len(ipv6Addrs) == 0 && cfg.RemoteAccess.IPv6.AdvertisedAddress == "" {
+			logger.Error("ipv6 mode: no GUA detected (set remote_access.ipv6.advertised_address to override)")
+			os.Exit(1)
+		}
+		if len(ipv6Addrs) > 0 {
+			logger.Info("ipv6 mode: detected GUAs", "addresses", ipv6Addrs)
+		}
+		if cfg.RemoteAccess.IPv6.RequireTLS && cfg.Server.TLSCertPath == "" {
+			logger.Error("ipv6 mode: TLS required but no cert configured (set server.tls_cert_path / remote_access.ipv6.require_tls=false)")
+			os.Exit(1)
+		}
+
+	case "wireguard":
+		// WireGuard mode — validated at startup; actual tunnel setup
+		// happens in the WireGuard adapter (Step B).
+		logger.Info("wireguard mode selected",
+			"listen_port", cfg.RemoteAccess.WireGuard.ListenPort,
+			"address", cfg.RemoteAccess.WireGuard.Address,
+		)
+
+	default:
+		logger.Error("remote_access.mode invalid", "mode", cfg.RemoteAccess.Mode)
+		os.Exit(1)
+	}
 
 	// ── master_key: load or first-run generate ────────────────────
 	secretStore := secret.NewFileStore(cfg.Storage.SecretPath)
@@ -227,6 +261,7 @@ func main() {
 		ServerVersion:    serverVersion,
 		ProtocolVersion:  protocolVersion,
 		Commit:           commit,
+		RemoteAccess:     cfg.RemoteAccess,
 		Capabilities: map[string]bool{
 			"range_download":   true,
 			"resumable_upload": true,
@@ -243,13 +278,14 @@ func main() {
 
 	// ── admin handler ────────────────────────────────────────────────
 	adminHandler, err := adminapi.NewHandler(adminapi.HandlerConfig{
-		Admin:       adminSvc,
-		Shares:      shareSvc,
-		Devices:     deviceSvc,
-		Logger:      logger,
-		ConfigToken: cfg.Admin.Token,
-		ListenAddr:  cfg.Server.Addr,
-		TLSEnabled:  cfg.Server.TLSCertPath != "",
+		Admin:        adminSvc,
+		Shares:       shareSvc,
+		Devices:      deviceSvc,
+		Logger:       logger,
+		ConfigToken:  cfg.Admin.Token,
+		ListenAddr:   cfg.Server.Addr,
+		TLSEnabled:   cfg.Server.TLSCertPath != "",
+		RemoteAccess: cfg.RemoteAccess,
 	})
 	if err != nil {
 		logger.Error("admin handler init failed", "err", err)

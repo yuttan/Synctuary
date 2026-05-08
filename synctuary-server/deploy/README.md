@@ -255,6 +255,111 @@ sudo nft add rule inet filter input ip saddr 192.168.0.0/16 tcp dport 8443 accep
 sudo iptables -A INPUT -p tcp --dport 8443 -s 192.168.0.0/16 -j ACCEPT
 ```
 
+---
+
+## Remote Access
+
+By default, Synctuary listens on the LAN only. Two remote-access modes are available for reaching the server from outside the local network.
+
+### Mode A: IPv6 Direct
+
+When your host has a public IPv6 Global Unicast Address, you can expose the server directly over IPv6 without NAT or tunneling.
+
+**Prerequisites:**
+- IPv6 connectivity on the host (check with `ip -6 addr show`)
+- TLS certificate configured (`server.tls_cert_path` set)
+- Port 8443/tcp open on the IPv6 firewall
+
+**Configuration** (`config.yml`):
+
+```yaml
+remote_access:
+  mode: "ipv6"
+  ipv6:
+    # Leave empty to auto-detect, or set explicitly:
+    advertised_address: "2001:db8:abcd:1234::1"
+    require_tls: true
+```
+
+**What changes:**
+- The server auto-detects IPv6 GUA at startup (or uses `advertised_address`)
+- `GET /api/v1/info` returns `ipv6_urls` array with all reachable endpoints
+- `GET /admin/api/ipv6/status` returns detected GUAs + constructed URLs for QR code generation
+
+**Firewall** (in addition to LAN rules above):
+
+```sh
+# UFW — allow IPv6 inbound on 8443
+sudo ufw allow from fd00::/8 to any port 8443 proto tcp
+# or, for global unicast only:
+sudo ufw allow from 2001:db8::/32 to any port 8443 proto tcp
+
+# nftables
+sudo nft add rule inet filter input ip6 saddr 2001:db8::/32 tcp dport 8443 accept
+
+# iptables (ip6tables on some distros)
+sudo ip6tables -A INPUT -p tcp --dport 8443 -s 2001:db8::/32 -j ACCEPT
+```
+
+**systemd drop-in** (optional — pins the server to a specific IPv6 address):
+
+```sh
+# /etc/systemd/system/synctuary.service.d/ipv6.conf
+[Service]
+IPAddressAllow=fe80::/10 2001:db8:abcd:1234::/64 ::1
+```
+
+> **Note:** IPv6 direct mode is most useful when your home router has a stable IPv6 prefix (common with /64 SLAAC or DHCPv6-PD deployments). The server will advertise all detected GUAs; clients can choose any reachable one.
+
+### Mode B: WireGuard VPN (coming soon)
+
+Built-in userspace WireGuard VPN via `golang.zx2c4.com/wireguard` + gvisor netstack. Clients tunnel through WireGuard to reach the server on a private subnet — no router port-forwarding required in many cases (EndHost mode).
+
+**Configuration** (`config.yml`):
+
+```yaml
+remote_access:
+  mode: "wireguard"
+  wireguard:
+    listen_port: 51820
+    address: "10.100.0.1/24"
+    private_key_path: "/data/secret/wireguard_private.key"
+    mtu: 1420
+    persistent_keepalive: 25s
+```
+
+**What happens at startup (Step B implementation):**
+
+1. Server loads or generates WireGuard private key at `private_key_path`
+2. Creates userspace WireGuard listener on UDP `listen_port`
+3. Pairs device public keys during the §4 pairing flow — each paired device gets a WireGuard peer entry
+4. Client receives WireGuard config in the pairing response and establishes the tunnel
+
+**Firewall:**
+
+```sh
+# UFW — allow WireGuard UDP inbound
+sudo ufw allow 51820/udp
+
+# nftables
+sudo nft add rule inet filter input udp dport 51820 accept
+
+# iptables
+sudo iptables -A INPUT -p udp --dport 51820 -j ACCEPT
+```
+
+> **Status:** Config schema and validation are complete. The WireGuard adapter itself (Step B) is the next implementation milestone. Setting `mode: "wireguard"` now passes startup validation; the actual tunnel setup follows in the next release.
+
+### Choosing a mode
+
+| Criteria | IPv6 Direct | WireGuard VPN |
+|:---|:---|:---|
+| Router config needed? | IPv6 prefix delegation | UDP 51820 port forward (or EndHost) |
+| TLS required? | Yes (recommended) | Inherited from server TLS setting |
+| Latency overhead | Minimal (~1 RTT) | Moderate (encap + decap) |
+| Works behind CGNAT? | No (needs GUA) | Yes (EndHost mode) |
+| Setup complexity | Low (if IPv6 available) | Medium (WireGuard client on device) |
+
 ### Health monitoring
 
 The server exposes `GET /api/v1/info` with no auth — perfect for an external monitoring probe (Uptime Kuma, healthchecks.io, Prometheus blackbox). It returns 200 + JSON when the server is happy, 5xx if migrations or config are broken.
