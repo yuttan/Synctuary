@@ -60,15 +60,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,9 +86,8 @@ import androidx.core.view.updatePadding
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.ResizeMode
+import androidx.media3.ui.AspectRatioFrameLayout
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 private const val CONTROLS_TIMEOUT_MS = 4_000L
@@ -254,11 +249,11 @@ fun MediaPreviewScreen(
                     PlayerView(ctx).apply {
                         useController = false
                         setKeepContentOnPlayerReset(true)
-                        resizeMode = if (isFullscreen) ResizeMode.ZOOM else ResizeMode.FIT
+                        resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
                     }.also { it.player = exoPlayer }
                 },
                 update = { pv ->
-                    pv.resizeMode = if (isFullscreen) ResizeMode.ZOOM else ResizeMode.FIT
+                    pv.resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -384,14 +379,14 @@ fun MediaPreviewScreen(
                         }
                     }
                     .pointerInput(Unit) {
-                        var dragStartX by remember { mutableFloatStateOf(0f) }
-                        var isDragging by remember { mutableStateOf(false) }
-                        var isVertDragging by remember { mutableStateOf(false) }
+                        var dragStartX = 0f
+                        var isDragging = false
+                        var isVertDragging = false
                         var vertDragSide: GestureDragType? = null
                         val dur = { state.duration.coerceAtLeast(1L) }
 
                         detectDragGestures(
-                            onStart = { offset: Offset ->
+                            onDragStart = { offset: Offset ->
                                 dragStartX = offset.x
                                 val midX = size.width / 2f
                                 vertDragSide = if (offset.x < midX) GestureDragType.BRIGHTNESS else GestureDragType.VOLUME
