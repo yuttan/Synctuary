@@ -107,5 +107,7 @@ COPY --from=builder /out/synctuaryd /usr/local/bin/synctuaryd
 # §10.2 production: TLS port 8443. §10.1 dev-plaintext also defaults
 # to 8443 — no separate http port published.
 EXPOSE 8443
+# WireGuard VPN tunnel (when remote_access.mode = "wireguard").
+EXPOSE 51820/udp
 
 ENTRYPOINT ["/usr/local/bin/synctuaryd"]

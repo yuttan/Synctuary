@@ -45,6 +45,7 @@ import (
 	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/fs"
 	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/rate"
 	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/secret"
+	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/wg"
 	httpapi "github.com/synctuary/synctuary-server/internal/adapter/interface/http"
 	adminapi "github.com/synctuary/synctuary-server/internal/adapter/interface/http/admin"
 	"github.com/synctuary/synctuary-server/internal/domain/device"
@@ -243,6 +244,47 @@ func main() {
 	}
 	logger.Info("shares initialized")
 
+	// ── WireGuard service (nil when mode != "wireguard") ──────────
+	wgPeerRepo := db.NewWGPeerRepository(database)
+	var wgSvc *usecase.WGService
+	if cfg.RemoteAccess.Mode == "wireguard" {
+		serverKey, kerr := wg.LoadOrGenerateServerKey(cfg.RemoteAccess.WireGuard.PrivateKeyPath)
+		if kerr != nil {
+			logger.Error("wireguard server key init failed", "err", kerr)
+			os.Exit(1)
+		}
+		logger.Info("wireguard server key loaded",
+			"public_key", serverKey.PublicKeyBase64(),
+		)
+
+		alloc, aerr := wg.NewAllocator(cfg.RemoteAccess.WireGuard.Address)
+		if aerr != nil {
+			logger.Error("wireguard IPAM init failed", "err", aerr)
+			os.Exit(1)
+		}
+
+		endpoint := fmt.Sprintf("%s:%d",
+			cfg.Server.Name, // TODO: use external hostname from config
+			cfg.RemoteAccess.WireGuard.ListenPort,
+		)
+
+		wgSvc, err = usecase.NewWGService(usecase.WGServiceConfig{
+			Repo:      wgPeerRepo,
+			Allocator: alloc,
+			ServerKey: serverKey,
+			Endpoint:  endpoint,
+			Keepalive: int(cfg.RemoteAccess.WireGuard.PersistentKeepalive.Seconds()),
+		})
+		if err != nil {
+			logger.Error("wireguard service init failed", "err", err)
+			os.Exit(1)
+		}
+		logger.Info("wireguard service ready",
+			"server_ip", alloc.ServerIP(),
+			"subnet", alloc.Subnet(),
+		)
+	}
+
 	// ── HTTP handler ──────────────────────────────────────────────
 	handler, err := httpapi.NewHandler(httpapi.HandlerConfig{
 		Pairing:          pairingSvc,
@@ -281,6 +323,7 @@ func main() {
 		Admin:        adminSvc,
 		Shares:       shareSvc,
 		Devices:      deviceSvc,
+		WG:           wgSvc, // nil when mode != "wireguard"
 		Logger:       logger,
 		ConfigToken:  cfg.Admin.Token,
 		ListenAddr:   cfg.Server.Addr,

@@ -36,6 +36,7 @@ type Handler struct {
 	admin        *usecase.AdminService
 	shares       *usecase.ShareService
 	devices      *usecase.DeviceService
+	wg           *usecase.WGService // nil when mode != "wireguard"
 	log          *slog.Logger
 	configToken  string
 	listenAddr   string
@@ -48,6 +49,7 @@ type HandlerConfig struct {
 	Admin        *usecase.AdminService
 	Shares       *usecase.ShareService
 	Devices      *usecase.DeviceService
+	WG           *usecase.WGService // nil when mode != "wireguard"
 	Logger       *slog.Logger
 	ConfigToken  string // optional pre-shared token for API automation
 	ListenAddr   string // e.g. ":8443"
@@ -67,6 +69,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		admin:        cfg.Admin,
 		shares:       cfg.Shares,
 		devices:      cfg.Devices,
+		wg:           cfg.WG,
 		log:          cfg.Logger,
 		configToken:  cfg.ConfigToken,
 		listenAddr:   cfg.ListenAddr,
@@ -111,6 +114,13 @@ func (h *Handler) Register(r chi.Router) {
 				// Remote access status.
 				r.Get("/remote-access", h.RemoteAccessStatus)
 				r.Get("/ipv6/status", h.IPv6Status)
+
+				// WireGuard peer management (only functional when mode == "wireguard").
+				r.Route("/wireguard", func(r chi.Router) {
+					r.Get("/peers", h.WGPeersList)
+					r.Post("/peers", h.WGPeersAdd)
+					r.Delete("/peers/{id}", h.WGPeersDelete)
+				})
 			})
 		})
 
@@ -466,6 +476,128 @@ func (h *Handler) buildServerURLs(r *http.Request, scheme, port string) []string
 }
 
 // ──────────────────────────────────────────────────────────────────
+// WireGuard Peer Management
+// ──────────────────────────────────────────────────────────────────
+
+func (h *Handler) WGPeersList(w http.ResponseWriter, r *http.Request) {
+	if h.wg == nil {
+		writeAdminJSON(w, http.StatusOK, map[string]any{
+			"peers":   []any{},
+			"enabled": false,
+		})
+		return
+	}
+	peers, err := h.wg.ListPeers(r.Context())
+	if err != nil {
+		h.log.Error("wg peers list", "err", err)
+		writeAdminJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal_error"})
+		return
+	}
+
+	type peerResp struct {
+		ID         string `json:"id"`
+		PublicKey  string `json:"public_key"`
+		AssignedIP string `json:"assigned_ip"`
+		Name       string `json:"name"`
+		CreatedAt  int64  `json:"created_at"`
+		RevokedAt  int64  `json:"revoked_at,omitempty"`
+	}
+	out := make([]peerResp, 0, len(peers))
+	for _, p := range peers {
+		out = append(out, peerResp{
+			ID:         hex.EncodeToString(p.ID),
+			PublicKey:  usecase.PeerPublicKeyBase64(p.PublicKey),
+			AssignedIP: p.AssignedIP,
+			Name:       p.Name,
+			CreatedAt:  p.CreatedAt,
+			RevokedAt:  p.RevokedAt,
+		})
+	}
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"peers":             out,
+		"enabled":           true,
+		"server_public_key": h.wg.ServerPublicKey(),
+		"server_ip":         h.wg.ServerIP(),
+	})
+}
+
+func (h *Handler) WGPeersAdd(w http.ResponseWriter, r *http.Request) {
+	if h.wg == nil {
+		writeAdminJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "wireguard_disabled",
+			"message": "WireGuard mode is not enabled",
+		})
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAdminBody)).Decode(&req); err != nil {
+		writeAdminJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "invalid_body",
+			"message": "invalid JSON body",
+		})
+		return
+	}
+	if req.Name == "" {
+		req.Name = "peer"
+	}
+
+	result, err := h.wg.AddPeer(r.Context(), req.Name, nil)
+	if err != nil {
+		h.log.Error("wg peer add", "err", err)
+		writeAdminJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "internal_error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	writeAdminJSON(w, http.StatusCreated, map[string]any{
+		"peer": map[string]any{
+			"id":          hex.EncodeToString(result.Peer.ID),
+			"public_key":  usecase.PeerPublicKeyBase64(result.Peer.PublicKey),
+			"assigned_ip": result.Peer.AssignedIP,
+			"name":        result.Peer.Name,
+			"created_at":  result.Peer.CreatedAt,
+		},
+		"config": result.Config,
+	})
+}
+
+func (h *Handler) WGPeersDelete(w http.ResponseWriter, r *http.Request) {
+	if h.wg == nil {
+		writeAdminJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "wireguard_disabled",
+			"message": "WireGuard mode is not enabled",
+		})
+		return
+	}
+
+	idHex := chi.URLParam(r, "id")
+	id, err := hex.DecodeString(idHex)
+	if err != nil || len(id) != 16 {
+		writeAdminJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "invalid_id",
+			"message": "id must be 32 hex characters",
+		})
+		return
+	}
+
+	if err := h.wg.DeletePeer(r.Context(), id); err != nil {
+		h.log.Error("wg peer delete", "err", err)
+		writeAdminJSON(w, http.StatusNotFound, map[string]any{
+			"error":   "not_found",
+			"message": "peer not found",
+		})
+		return
+	}
+
+	writeAdminJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Remote Access Status
 // ──────────────────────────────────────────────────────────────────
 
@@ -484,12 +616,17 @@ func (h *Handler) RemoteAccessStatus(w http.ResponseWriter, r *http.Request) {
 			"tls_enabled":     h.tlsEnabled,
 		}
 	case "wireguard":
-		status["wireguard"] = map[string]any{
+		wgStatus := map[string]any{
 			"listen_port":          h.remoteAccess.WireGuard.ListenPort,
 			"address":              h.remoteAccess.WireGuard.Address,
 			"mtu":                  h.remoteAccess.WireGuard.MTU,
 			"persistent_keepalive": int64(h.remoteAccess.WireGuard.PersistentKeepalive.Seconds()),
 		}
+		if h.wg != nil {
+			wgStatus["server_public_key"] = h.wg.ServerPublicKey()
+			wgStatus["server_ip"] = h.wg.ServerIP()
+		}
+		status["wireguard"] = wgStatus
 	}
 	writeAdminJSON(w, http.StatusOK, status)
 }
