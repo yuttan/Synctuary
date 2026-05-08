@@ -1,17 +1,19 @@
 # Synctuary Protocol Specification
 
-**Version**: 0.2.3
-**Date**: 2026-04-28
+**Version**: 0.3.0
+**Date**: 2026-05-08
 **Status**: Final
 **License**: CC-BY-4.0
 
 This document defines the wire protocol between Synctuary clients and servers. Third-party implementations of clients or servers conforming to this specification are welcome.
 
+**Changes from v0.2.3 Final**: Added §10 Shares (multi-drive support — clients discover available drives via `GET /api/v1/shares`; file operations gain an optional `share` query parameter) and §11 Pins (per-device Quick Access bookmarks). Added `shares` and `pins` capabilities. Renumbered §12–15. Updated version to v0.3.0.
+
 **Changes from v0.2.2 Final**: Added §8 Favorites — server-managed lists of file/directory paths shared across all devices paired with the same `master_key`, with a soft-hide flag and explicit security model leaving stronger access control to the client. Renumbered §9–13 (Errors, Transport Security, Private Mode, Reserved, References) to make room. Updated reference implementation license note to Apache-2.0.
 
 **Changes from v0.2.1 Draft**: Specified deduplication fallback when server-side linking fails (§6.3.1, Critical — avoids client deadlock on cross-volume FS), added single-active-session rule for concurrent uploads to the same `path` (§6.3.5 new, Major — prevents last-write-wins race between devices), added implementation note on idempotent retry content blindness (§6.3.2, Major — explicit debugging-hazard warning), mandated CSPRNG for `nonce` (§4.2) and `device_token` (§4.3) generation (Minor).
 
-**Changes from v0.2 Draft**: Clarified deduplicated-upload server obligations (§6.3.1, Critical), defined `transport_profile` downgrade detection trigger (§10, Major), specified chunk retry idempotency semantics (§6.3.2, Minor), and added explicit notes on binary field encoding (§4.3), `master_key` persistence (§4.4), `If-None-Match` handling (§6.2), and pairing payload byte-length annotations (§4.1).
+**Changes from v0.2 Draft**: Clarified deduplicated-upload server obligations (§6.3.1, Critical), defined `transport_profile` downgrade detection trigger (§12, Major), specified chunk retry idempotency semantics (§6.3.2, Minor), and added explicit notes on binary field encoding (§4.3), `master_key` persistence (§4.4), `If-None-Match` handling (§6.2), and pairing payload byte-length annotations (§4.1).
 
 **Changes from v0.1 Draft**: Added pairing nonce (Critical, replay protection), exposed `tls_fingerprint` / `transport_profile` via `/info`, defined `move` response, demoted `lan-only` to `dev-plaintext` (development only), mandated sequential chunk ordering in v0.2, unified Base64URL conventions, added `mime_type`, `?hash=true` opt-in, explicit sanitization rules, 405/415 status codes, device enumeration scope, and several clarifications.
 
@@ -30,7 +32,7 @@ This document defines the wire protocol between Synctuary clients and servers. T
   - Leading or trailing whitespace in any component MUST be rejected.
   - Windows-reserved component names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, case-insensitive) SHOULD be rejected regardless of the server's host OS, for portability.
 - Protocol version is expressed in the URL: `/api/v1/…`
-- Servers MUST support TLS 1.2+ in production (see §10).
+- Servers MUST support TLS 1.2+ in production (see §12).
 
 ## 2. Transport
 
@@ -214,13 +216,15 @@ Unauthenticated. Used for discovery and capability negotiation.
     "photo_backup": false,
     "private_mode": false,
     "parallel_upload": false,
-    "if_none_match": false
+    "if_none_match": false,
+    "shares": true,
+    "pins": true
   }
 }
 ```
 
 - `encryption_mode` ∈ `{"standard", "private"}`, chosen at server setup, immutable.
-- `transport_profile` ∈ `{"dev-plaintext", "tls-ca-verified", "tls-self-signed"}` (see §10).
+- `transport_profile` ∈ `{"dev-plaintext", "tls-ca-verified", "tls-self-signed"}` (see §12).
 - `tls_fingerprint` is the SHA-256 of the server's TLS leaf certificate (DER-encoded), lowercase hex. Omitted when `transport_profile == "dev-plaintext"`.
 - `capabilities` contains boolean flags only. Capability names are additive-only across versions; removal of a capability requires a major version bump (`/api/v2/…`).
 
@@ -234,6 +238,7 @@ Lists entries in a directory.
 
 **Query parameters:**
 - `path` (required) — directory path, e.g. `/photos/2026`
+- `share` (optional) — base64url-encoded 16-byte share ID. When present, the path is resolved relative to the identified share's host directory. When absent, the server MUST use the default share (the share with `is_default=true`). If `shares` capability is `false`, this parameter is ignored. See §10.
 - `hash` (optional, default `false`) — when `true`, server MUST include `sha256` for each file entry; when `false`, server MUST omit it even if cached.
 
 **Response (200):**
@@ -771,6 +776,9 @@ Standard codes:
 | 404 | `not_found` | Resource does not exist |
 | 404 | `favorite_list_not_found` | Favorite list `id` is unknown (§8.3, §8.5–8.8) |
 | 404 | `favorite_item_not_found` | Path is not present in the list (§8.8) |
+| 404 | `share_not_found` | Share `id` is unknown (§10, §11) |
+| 404 | `pin_not_found` | Pin not found for the given share/path (§11.4) |
+| 409 | `pin_exists` | A pin already exists for this device/share/path (§11.3) |
 | 405 | `method_not_allowed` | HTTP method not supported at this path |
 | 409 | `conflict` / `file_exists` / `directory_not_empty` / `upload_range_mismatch` / `upload_in_progress` / `pair_device_id_collision` | Resource conflict |
 | 410 | `pair_nonce_expired` | Pairing nonce expired or already consumed |
@@ -783,7 +791,187 @@ Standard codes:
 | 503 | `service_unavailable` | Transient overload (e.g. hash job saturation) |
 | 507 | `insufficient_storage` | Disk full |
 
-## 10. Transport Security
+## 10. Shares
+
+Shares are server-configured named directories (drives, mount points, NAS paths) exposed to clients. They replace the single implicit root directory from v0.2 and enable multi-drive setups where different physical or logical volumes are presented as separate browsable roots.
+
+Endpoints in this section require a valid `Authorization: Bearer <device_token>` header. The `shares` capability MUST be `true` for the server to advertise this feature; clients SHOULD check the capability before using share-scoped operations.
+
+### 10.1 Data Model
+
+A `Share` represents one server-side directory made available to clients:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string (base64url-16bytes) | Server-issued opaque identifier |
+| `name` | string (1..256 NFC chars) | Admin-supplied display label |
+| `icon` | string | Optional hint for client UI (e.g. `"folder"`, `"hdd"`, `"film"`). Empty string means use the default icon. |
+| `read_only` | bool | When `true`, upload, delete, and move operations through this share are forbidden. |
+
+Additional fields (`host_path`, `sort_order`, `is_default`) are server-internal and MUST NOT be exposed to clients via the protocol API.
+
+### 10.2 `GET /api/v1/shares`
+
+Lists all shares available to the authenticated device.
+
+**Response (200):**
+
+```json
+{
+  "shares": [
+    {
+      "id": "AbCd...",
+      "name": "Documents",
+      "icon": "folder",
+      "read_only": false
+    },
+    {
+      "id": "EfGh...",
+      "name": "Media",
+      "icon": "film",
+      "read_only": true
+    }
+  ]
+}
+```
+
+Shares are returned in `sort_order` ascending order, then by `name` ascending.
+
+### 10.3 Share-Scoped File Operations
+
+When the `shares` capability is `true`, all file-operation endpoints in §6 accept an optional `share` query parameter:
+
+- `GET /api/v1/files?share=<share_id>&path=/subdir`
+- `GET /api/v1/files/content?share=<share_id>&path=/file.txt`
+- `POST /api/v1/files/upload/init` (with `"share_id": "..."` in the JSON body)
+- `DELETE /api/v1/files?share=<share_id>&path=/file.txt`
+- `POST /api/v1/files/move` (with `"share_id": "..."` in the JSON body)
+
+When `share` is absent, the server MUST resolve the path against the **default share** (the share marked `is_default=true` on the server). This ensures backward compatibility with pre-v0.3 clients that are unaware of shares.
+
+If the specified `share_id` does not exist: `404 share_not_found`.
+
+If the share is `read_only` and the operation would modify content (upload, delete, move): `403 forbidden`.
+
+### 10.4 Default Share and Backward Compatibility
+
+Servers MUST have exactly one default share at all times. On first start (or migration from v0.2), the server auto-creates a default share from the legacy `storage.root_path` configuration value. Clients that do not send the `share` parameter continue to work transparently.
+
+### 10.5 Future (v0.4+)
+
+- Per-share access control (allow/deny specific devices).
+- Per-share encryption settings for Private Mode.
+
+## 11. Pins (Quick Access)
+
+Pins are per-device bookmarks to directories within shares, providing a Quick Access feature similar to Windows Explorer's pinned folders. Each paired device maintains its own pin set; pins are NOT shared across devices (unlike favorites in §8, which are shared).
+
+Endpoints in this section require a valid `Authorization: Bearer <device_token>` header. The `pins` capability MUST be `true` for the server to advertise this feature.
+
+### 11.1 Data Model
+
+A `Pin` represents one Quick Access bookmark:
+
+| Field | Type | Description |
+|---|---|---|
+| `share_id` | string (base64url-16bytes) | The share this pin points into |
+| `path` | string | Directory path within the share (e.g. `/Photos/2024`) |
+| `label` | string | Optional display label. Empty string means the client SHOULD derive a label from the path's last component. |
+| `sort_order` | integer | Display ordering; lower values appear first |
+| `created_at` | int64 | Unix epoch seconds |
+
+The composite key `(device_id, share_id, path)` uniquely identifies a pin. A device MAY have multiple pins pointing into the same share at different paths.
+
+When a device is revoked (§7.2), all its pins are cascade-deleted by the server.
+
+When a share is deleted (admin operation), all pins referencing it are cascade-deleted.
+
+### 11.2 `GET /api/v1/pins`
+
+Lists all pins belonging to the authenticated device.
+
+**Response (200):**
+
+```json
+{
+  "pins": [
+    {
+      "share_id": "AbCd...",
+      "path": "/Photos/2024",
+      "label": "Photos 2024",
+      "sort_order": 0,
+      "created_at": 1713600000
+    },
+    {
+      "share_id": "AbCd...",
+      "path": "/Projects/Synctuary",
+      "label": "",
+      "sort_order": 1,
+      "created_at": 1713600100
+    }
+  ]
+}
+```
+
+Pins are returned in `sort_order` ascending order.
+
+### 11.3 `POST /api/v1/pins`
+
+Creates a new pin for the authenticated device.
+
+**Request:**
+
+```json
+{
+  "share_id": "AbCd...",
+  "path": "/Photos/2024",
+  "label": "Photos 2024",
+  "sort_order": 0
+}
+```
+
+- `share_id` MUST reference an existing share.
+- `path` MUST satisfy §1 path conventions and MUST NOT be empty.
+- `label` is optional; defaults to empty string.
+- `sort_order` is optional; defaults to `0`.
+- The server MUST NOT verify that the path currently exists on disk — pins are informational metadata, not hard references.
+
+**Response (201):**
+
+```json
+{
+  "share_id": "AbCd...",
+  "path": "/Photos/2024",
+  "label": "Photos 2024",
+  "sort_order": 0,
+  "created_at": 1713600000
+}
+```
+
+**Errors:**
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `bad_request` | Path empty or validation failed |
+| 404 | `share_not_found` | `share_id` does not reference a valid share |
+| 409 | `pin_exists` | A pin already exists for this device/share/path combination |
+
+### 11.4 `DELETE /api/v1/pins`
+
+Removes a pin belonging to the authenticated device.
+
+**Query parameters:**
+
+| Name | Type | Description |
+|---|---|---|
+| `share_id` | string (base64url-16bytes) | The share the pin references |
+| `path` | string | The path within the share |
+
+**Response:** `204 No Content`.
+
+**Errors:** `400 bad_request` (missing or invalid `share_id`/`path`), `404 pin_not_found`.
+
+## 12. Transport Security
 
 Servers declare one of three transport profiles (exposed via `/info.transport_profile`):
 
@@ -813,7 +1001,7 @@ On **every** subsequent connection, before sending any `Authorization` header, t
 
 A fingerprint mismatch under `tls-ca-verified` is acceptable (certificate rotation is expected), provided the new certificate is trusted by the system CA store.
 
-## 11. Private Mode (E2E) — v0.3 Preview
+## 13. Private Mode (E2E) — v0.4 Preview
 
 *Normative specification deferred to `PROTOCOL-private.md` in v0.3. The following is informative.*
 
@@ -827,19 +1015,20 @@ In Private Mode:
 - Directory listing is implemented via a separate encrypted manifest.
 - Deduplication uses convergent encryption over the plaintext SHA-256, acknowledged trade-off (CE is vulnerable to confirmation-of-file attacks when the key space is enumerable).
 
-## 12. Reserved for Later Versions
+## 14. Reserved for Later Versions
 
-- 6-digit pairing code flow (v0.3)
-- Photo backup metadata channel and dedup by perceptual hash (v0.3)
-- Private Mode normative spec (v0.3)
-- Parallel chunk upload (v0.3, gated by `parallel_upload`)
-- `If-None-Match` / `304 Not Modified` support (v0.3, gated by `if_none_match`)
-- Token rotation / `refresh_token` (v0.4)
-- WebSocket push notifications (v0.4)
-- Mesh VPN bootstrap endpoints for Headscale integration (v0.4)
-- Streaming decryption for Private Mode (v0.5)
+- 6-digit pairing code flow (v0.4)
+- Photo backup metadata channel and dedup by perceptual hash (v0.4)
+- Private Mode normative spec (v0.4)
+- Parallel chunk upload (v0.4, gated by `parallel_upload`)
+- `If-None-Match` / `304 Not Modified` support (v0.4, gated by `if_none_match`)
+- Per-share access control — allow/deny specific devices (v0.4)
+- Token rotation / `refresh_token` (v0.5)
+- WebSocket push notifications (v0.5)
+- Mesh VPN bootstrap endpoints for Headscale integration (v0.5)
+- Streaming decryption for Private Mode (v0.6)
 
-## 13. Reference Implementations
+## 15. Reference Implementations
 
 - Official server (Go, Apache-2.0): https://github.com/yuttan/Synctuary — `synctuary-server/`
 - Official Android client (Kotlin + Jetpack Compose, Apache-2.0): planned, see `synctuary-android/` (TBD)
@@ -849,4 +1038,4 @@ Third-party implementations SHOULD set a descriptive `Server:` (responses) or `U
 
 ---
 
-*End of Synctuary Protocol Specification v0.2.3.*
+*End of Synctuary Protocol Specification v0.3.0.*
