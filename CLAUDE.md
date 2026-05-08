@@ -313,10 +313,11 @@ job must install Node.js and run `npm ci && npm run build` in
 - ✅ Android: unit tests — ViewModel tests (MockK + coroutines-test), DTO serialization, TransferState, UiState logic (PR #19)
 - ✅ CI: 5 required checks, branch protection ruleset, GHCR publish on tags
 - ✅ Android UI mockups: 14 screens of Material 3 dark
+- ✅ Server: remote access Step A — config schema for `remote_access.mode` (disabled/ipv6/wireguard), IPv6 GUA auto-detection, `/api/v1/info` ipv6_urls extension, admin `/admin/api/remote-access` and `/admin/api/ipv6/status` endpoints, deploy docs with firewall examples
 - ✅ Documentation: SPEC.md, PROTOCOL.md v0.3.0 (§10 Shares, §11 Pins), deploy/README.md, this file
 
 ### Next up (priority order)
-1. **Remote access** — WireGuard VPN + IPv6 direct dual-mode (Issue #25 spec complete, implementation pending).
+1. **Remote access** — Step A (Config + IPv6 direct mode) done: `remote_access` config schema, IPv6 GUA detection, `/api/v1/info` extension, admin status endpoints, deploy docs. Step B (WireGuard VPN adapter via golang.zx2c4.com/wireguard + gvisor) remains.
 2. **Real-device integration testing** — Android APK + running server on the LAN, end-to-end §4 pairing flow verification.
 3. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
 4. **iOS client** — deferred until test device is available.

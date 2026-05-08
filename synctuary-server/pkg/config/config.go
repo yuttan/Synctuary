@@ -22,13 +22,14 @@ import (
 // dot-separated keys used by koanf; they are case-insensitive for env
 // vars (SYNCTUARY_SERVER_ADDR → server.addr).
 type Config struct {
-	Server   ServerConfig   `koanf:"server"`
-	Storage  StorageConfig  `koanf:"storage"`
-	Database DatabaseConfig `koanf:"database"`
-	Upload   UploadConfig   `koanf:"upload"`
-	Pairing  PairingConfig  `koanf:"pairing"`
-	Log      LogConfig      `koanf:"log"`
-	Admin    AdminConfig    `koanf:"admin"`
+	Server       ServerConfig       `koanf:"server"`
+	Storage      StorageConfig      `koanf:"storage"`
+	Database     DatabaseConfig     `koanf:"database"`
+	Upload       UploadConfig       `koanf:"upload"`
+	Pairing      PairingConfig      `koanf:"pairing"`
+	Log          LogConfig          `koanf:"log"`
+	Admin        AdminConfig        `koanf:"admin"`
+	RemoteAccess RemoteAccessConfig `koanf:"remote_access"`
 }
 
 type ServerConfig struct {
@@ -83,6 +84,28 @@ type AdminConfig struct {
 	Token string `koanf:"token"`
 }
 
+// RemoteAccessConfig carries the remote-access mode and per-mode settings.
+type RemoteAccessConfig struct {
+	Mode      string          `koanf:"mode"`      // "disabled" | "wireguard" | "ipv6"
+	WireGuard WireGuardConfig `koanf:"wireguard"` // WireGuard-specific settings
+	IPv6      IPv6Config      `koanf:"ipv6"`      // IPv6 direct mode settings
+}
+
+// WireGuardConfig holds settings for the userspace WireGuard VPN mode.
+type WireGuardConfig struct {
+	ListenPort          int           `koanf:"listen_port"`          // UDP port for WireGuard (default 51820)
+	Address             string        `koanf:"address"`              // server CIDR, e.g. "10.100.0.1/24"
+	PrivateKeyPath      string        `koanf:"private_key_path"`     // path to persist Curve25519 private key
+	MTU                 int           `koanf:"mtu"`                  // default 1420
+	PersistentKeepalive time.Duration `koanf:"persistent_keepalive"` // default 25s
+}
+
+// IPv6Config holds settings for IPv6 Global Unicast Address direct mode.
+type IPv6Config struct {
+	AdvertisedAddress string `koanf:"advertised_address"` // empty = auto-detect first GUA
+	RequireTLS        bool   `koanf:"require_tls"`        // default true
+}
+
 // Defaults returns a Config populated with the compiled-in baseline used
 // when no file / env overrides are supplied. Safe to use as the initial
 // value fed to koanf.
@@ -118,6 +141,19 @@ func Defaults() *Config {
 		Log: LogConfig{
 			Level:  "info",
 			Format: "json",
+		},
+		RemoteAccess: RemoteAccessConfig{
+			Mode: "disabled",
+			WireGuard: WireGuardConfig{
+				ListenPort:          51820,
+				Address:             "10.100.0.1/24",
+				PrivateKeyPath:      "./data/secret/wireguard_private.key",
+				MTU:                 1420,
+				PersistentKeepalive: 25 * time.Second,
+			},
+			IPv6: IPv6Config{
+				RequireTLS: true,
+			},
 		},
 	}
 }
@@ -185,6 +221,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Storage.SecretPath == "" {
 		return errors.New("config: storage.secret_path is required")
+	}
+	switch c.RemoteAccess.Mode {
+	case "disabled", "ipv6", "wireguard":
+	default:
+		return fmt.Errorf("config: remote_access.mode %q: expected \"disabled\", \"ipv6\", or \"wireguard\"", c.RemoteAccess.Mode)
+	}
+	if c.RemoteAccess.Mode == "ipv6" && c.RemoteAccess.IPv6.RequireTLS && c.Server.TLSCertPath == "" {
+		return errors.New("config: remote_access.mode=ipv6 with require_tls=true requires server.tls_cert_path")
 	}
 	return nil
 }

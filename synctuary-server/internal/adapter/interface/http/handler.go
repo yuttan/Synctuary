@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"path"
 	"strconv"
@@ -28,6 +29,8 @@ import (
 	"github.com/synctuary/synctuary-server/internal/domain/pin"
 	"github.com/synctuary/synctuary-server/internal/domain/share"
 	"github.com/synctuary/synctuary-server/internal/usecase"
+	"github.com/synctuary/synctuary-server/pkg/config"
+	"github.com/synctuary/synctuary-server/pkg/netutil"
 )
 
 // base64url-without-padding codec per PROTOCOL §1. Standard base64
@@ -61,6 +64,7 @@ type Handler struct {
 	protocolVersion  string
 	commit           string // ldflags-injectable; "unknown" if unset
 	capabilities     map[string]bool
+	remoteAccess     config.RemoteAccessConfig
 }
 
 // HandlerConfig is the constructor input.
@@ -82,6 +86,7 @@ type HandlerConfig struct {
 	ProtocolVersion  string
 	Commit           string // build-time git SHA; "unknown" if not injected
 	Capabilities     map[string]bool
+	RemoteAccess     config.RemoteAccessConfig
 }
 
 // NewHandler validates the config and returns a Handler ready to mount.
@@ -113,6 +118,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		protocolVersion:  cfg.ProtocolVersion,
 		commit:           cfg.Commit,
 		capabilities:     cfg.Capabilities,
+		remoteAccess:     cfg.RemoteAccess,
 	}, nil
 }
 
@@ -182,6 +188,14 @@ func (h *Handler) Info(w http.ResponseWriter, r *http.Request) {
 	// so devs running bare `go build` don't see a noisy "unknown" field.
 	if h.commit != "" && h.commit != "unknown" {
 		body["commit"] = h.commit
+	}
+	// When ipv6 mode is active, advertise the server's IPv6 GUA URLs
+	// so clients can connect over remote access.
+	if h.remoteAccess.Mode == "ipv6" {
+		urls := buildIPv6URLs(r, h.transportProfile, h.remoteAccess.IPv6.AdvertisedAddress)
+		if len(urls) > 0 {
+			body["ipv6_urls"] = urls
+		}
 	}
 	WriteJSON(w, http.StatusOK, body)
 }
@@ -1061,4 +1075,43 @@ func (h *Handler) writeFileErr(w http.ResponseWriter, err error, op string) {
 		h.log.Error("file op", slog.String("op", op), slog.String("err", err.Error()))
 		WriteError(w, http.StatusInternalServerError, "internal_error", op+" failed")
 	}
+}
+
+// buildIPv6URLs returns a list of server URLs constructed from the
+// detected IPv6 Global Unicast Addresses. When advertised is non-empty
+// it overrides auto-detection. scheme is derived from transportProfile.
+func buildIPv6URLs(r *http.Request, transportProfile, advertised string) []string {
+	scheme := "https"
+	if transportProfile == "dev-plaintext" {
+		scheme = "http"
+	}
+
+	var addrs []string
+	if advertised != "" {
+		addrs = append(addrs, advertised)
+	} else {
+		addrs = netutil.DetectIPv6GUAs()
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
+
+	_, port, _ := net.SplitHostPort(r.Host)
+	if port == "" {
+		port = "8443"
+	}
+
+	urls := make([]string, 0, len(addrs))
+	for _, addr := range addrs {
+		host := addr
+		if strings.Contains(addr, ":") {
+			host = "[" + host + "]"
+		}
+		u := scheme + "://" + host
+		if !netutil.IsDefaultPort(scheme, port) {
+			u += ":" + port
+		}
+		urls = append(urls, u)
+	}
+	return urls
 }

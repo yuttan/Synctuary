@@ -80,6 +80,52 @@ pairing:
   rate_limit_max:    5
   rate_limit_window: 1m
 
+admin:
+  # Optional pre-shared token for headless / API automation access to
+  # /admin/api/* endpoints. When set, the token can be used as a
+  # Bearer token instead of password-based login. Generate with:
+  #   openssl rand -hex 32
+  token: ""
+
+remote_access:
+  # Remote access mode — how the server is reachable from outside the LAN.
+  #
+  #   "disabled"  — LAN-only (default). Server binds to addr above.
+  #   "ipv6"      — IPv6 direct mode. Clients connect via the server's
+  #                 IPv6 Global Unicast Address. TLS is recommended.
+  #   "wireguard" — Built-in WireGuard VPN (Step B, coming soon).
+  #                 Clients tunnel through WireGuard to reach the server.
+  mode: "disabled"
+
+  # IPv6 direct mode settings (when mode = "ipv6")
+  ipv6:
+    # Server's IPv6 Global Unicast Address. Leave empty to auto-detect
+    # the first available GUA on boot. Set explicitly when multiple
+    # interfaces are present or auto-detection picks the wrong one.
+    advertised_address: ""
+
+    # Require TLS for IPv6 connections. When true, the server validates
+    # that server.tls_cert_path is configured at startup.
+    require_tls: true
+
+  # WireGuard mode settings (when mode = "wireguard")
+  # Step B: userspace WireGuard VPN via golang.zx2c4.com/wireguard + gvisor
+  wireguard:
+    # UDP port for WireGuard listener
+    listen_port: 51820
+
+    # Server virtual IP (CIDR). Clients get an address from the same subnet.
+    address: "10.100.0.1/24"
+
+    # Path to persist the WireGuard private key (survives restarts)
+    private_key_path: "/data/secret/wireguard_private.key"
+
+    # MTU for the WireGuard tunnel
+    mtu: 1420
+
+    # How often the server sends empty packets to keep NAT mappings alive
+    persistent_keepalive: 25s
+
 log:
   # "debug" | "info" | "warn" | "error"
   level: "info"
