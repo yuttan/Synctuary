@@ -290,16 +290,12 @@ private fun SynctuaryNavHost() {
                                 insetsController.hide(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
-                                insetsController.setSystemBarsBehavior(
-                                    androidx.core.view.WindowInsetsCompat.SystemUiBehavior.immersiveSticky()
-                                )
+                                insetsController.systemBarsBehavior = 2
                             } else {
                                 insetsController.show(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
-                                insetsController.setSystemBarsBehavior(
-                                    androidx.core.view.WindowInsetsCompat.SystemUiBehavior.defaults()
-                                )
+                                insetsController.systemBarsBehavior = 0
                             }
                         }
                     },
