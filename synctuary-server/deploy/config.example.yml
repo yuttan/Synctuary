@@ -109,7 +109,8 @@ remote_access:
     require_tls: true
 
   # WireGuard mode settings (when mode = "wireguard")
-  # Step B: userspace WireGuard VPN via golang.zx2c4.com/wireguard + gvisor
+  # Userspace WireGuard VPN via gvisor netstack — no kernel module or
+  # CAP_NET_ADMIN required. Forward UDP listen_port on your router.
   wireguard:
     # UDP port for WireGuard listener
     listen_port: 51820

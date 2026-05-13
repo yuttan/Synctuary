@@ -13,6 +13,14 @@ import (
 	"github.com/synctuary/synctuary-server/internal/domain/wgpeer"
 )
 
+// TunnelPeerSyncer is optionally implemented by the WireGuard tunnel
+// server to receive real-time peer updates. When nil, peer changes are
+// only persisted to the database (they take effect on next restart).
+type TunnelPeerSyncer interface {
+	AddTunnelPeer(publicKey [32]byte, allowedIP string) error
+	RemoveTunnelPeer(publicKey [32]byte) error
+}
+
 // WGService manages WireGuard peer lifecycle: creation (key generation
 // + IP allocation), listing, revocation, and client config generation.
 type WGService struct {
@@ -22,6 +30,7 @@ type WGService struct {
 	endpoint  string // external host:port for client configs
 	keepalive int    // PersistentKeepalive seconds
 	now       func() int64
+	tunnel    TunnelPeerSyncer // optional live tunnel for dynamic peer sync
 }
 
 // WGServiceConfig carries the constructor dependencies.
@@ -32,6 +41,7 @@ type WGServiceConfig struct {
 	Endpoint  string // e.g. "myserver.example.com:51820"
 	Keepalive int    // seconds
 	Now       func() int64
+	Tunnel    TunnelPeerSyncer // optional; nil when tunnel is not running
 }
 
 // NewWGService validates dependencies and returns a ready service.
@@ -55,6 +65,7 @@ func NewWGService(cfg WGServiceConfig) (*WGService, error) {
 		endpoint:  cfg.Endpoint,
 		keepalive: cfg.Keepalive,
 		now:       cfg.Now,
+		tunnel:    cfg.Tunnel,
 	}, nil
 }
 
@@ -112,6 +123,17 @@ func (s *WGService) AddPeer(ctx context.Context, name string, deviceID []byte) (
 		break
 	}
 
+	// Sync to live tunnel if available (best-effort; DB is source of truth).
+	if s.tunnel != nil {
+		var pk [32]byte
+		copy(pk[:], peerKP.PublicKey[:])
+		if terr := s.tunnel.AddTunnelPeer(pk, assignedIP); terr != nil {
+			// Log-worthy but not fatal — the peer exists in DB and will
+			// be picked up on next restart.
+			_ = terr
+		}
+	}
+
 	// Build client config.
 	_, subnet, _ := net.ParseCIDR(s.alloc.Subnet())
 	ones, _ := subnet.Mask.Size()
@@ -146,14 +168,50 @@ func (s *WGService) GetPeer(ctx context.Context, id []byte) (*wgpeer.Peer, error
 	return s.repo.GetByID(ctx, id)
 }
 
-// RevokePeer soft-deletes a peer. The peer's IP is freed for reuse.
+// RevokePeer soft-deletes a peer and removes it from the live tunnel.
 func (s *WGService) RevokePeer(ctx context.Context, id []byte) error {
-	return s.repo.Revoke(ctx, id, s.now())
+	// Look up peer's public key before revocation for tunnel sync.
+	var pubKey []byte
+	if s.tunnel != nil {
+		if peer, err := s.repo.GetByID(ctx, id); err == nil {
+			pubKey = peer.PublicKey
+		}
+	}
+
+	if err := s.repo.Revoke(ctx, id, s.now()); err != nil {
+		return err
+	}
+
+	// Remove from live tunnel (best-effort).
+	if s.tunnel != nil && len(pubKey) == 32 {
+		var pk [32]byte
+		copy(pk[:], pubKey)
+		_ = s.tunnel.RemoveTunnelPeer(pk)
+	}
+	return nil
 }
 
-// DeletePeer hard-removes a peer from the database.
+// DeletePeer hard-removes a peer from the database and the live tunnel.
 func (s *WGService) DeletePeer(ctx context.Context, id []byte) error {
-	return s.repo.Delete(ctx, id)
+	// Look up peer's public key before deletion for tunnel sync.
+	var pubKey []byte
+	if s.tunnel != nil {
+		if peer, err := s.repo.GetByID(ctx, id); err == nil {
+			pubKey = peer.PublicKey
+		}
+	}
+
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	// Remove from live tunnel (best-effort).
+	if s.tunnel != nil && len(pubKey) == 32 {
+		var pk [32]byte
+		copy(pk[:], pubKey)
+		_ = s.tunnel.RemoveTunnelPeer(pk)
+	}
+	return nil
 }
 
 // GetPeerConfig regenerates the INI config for an existing peer.

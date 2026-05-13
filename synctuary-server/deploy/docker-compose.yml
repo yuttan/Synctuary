@@ -55,8 +55,11 @@ services:
 
     # 8443 is the PROTOCOL §10 default; remap host-side if 8443 is
     # already taken (e.g., "9443:8443").
+    # 51820/udp is the WireGuard listener (when remote_access.mode = "wireguard").
+    # Omit the UDP mapping if you don't use WireGuard.
     ports:
       - "8443:8443"
+      - "51820:51820/udp"
 
     volumes:
       # The only state worth preserving — content + master_key + SQLite.

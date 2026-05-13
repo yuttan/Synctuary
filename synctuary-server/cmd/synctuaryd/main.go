@@ -30,9 +30,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -244,9 +246,10 @@ func main() {
 	}
 	logger.Info("shares initialized")
 
-	// ── WireGuard service (nil when mode != "wireguard") ──────────
+	// ── WireGuard service + tunnel (nil when mode != "wireguard") ─
 	wgPeerRepo := db.NewWGPeerRepository(database)
 	var wgSvc *usecase.WGService
+	var wgServer *wg.Server
 	if cfg.RemoteAccess.Mode == "wireguard" {
 		serverKey, kerr := wg.LoadOrGenerateServerKey(cfg.RemoteAccess.WireGuard.PrivateKeyPath)
 		if kerr != nil {
@@ -263,6 +266,45 @@ func main() {
 			os.Exit(1)
 		}
 
+		// Start the userspace WireGuard tunnel. This creates a gvisor
+		// netstack TUN device, binds the WireGuard UDP listener, and
+		// opens a virtual TCP listener for HTTP inside the tunnel.
+		wgServer, err = wg.NewServer(wg.ServerConfig{
+			ServerKey:  serverKey,
+			ListenPort: cfg.RemoteAccess.WireGuard.ListenPort,
+			Address:    cfg.RemoteAccess.WireGuard.Address,
+			MTU:        cfg.RemoteAccess.WireGuard.MTU,
+			HTTPPort:   extractPort(cfg.Server.Addr, 8443),
+			Logger:     logger,
+		})
+		if err != nil {
+			logger.Error("wireguard tunnel init failed", "err", err)
+			os.Exit(1)
+		}
+		defer wgServer.Close()
+
+		// Load existing active peers from DB and sync to the live device.
+		activePeers, perr := wgPeerRepo.ListActive(context.Background())
+		if perr != nil {
+			logger.Error("wireguard load peers failed", "err", perr)
+			os.Exit(1)
+		}
+		if len(activePeers) > 0 {
+			peerConfigs := make([]wg.PeerConfig, 0, len(activePeers))
+			for _, p := range activePeers {
+				var pk [32]byte
+				copy(pk[:], p.PublicKey)
+				peerConfigs = append(peerConfigs, wg.PeerConfig{
+					PublicKey: pk,
+					AllowedIP: p.AssignedIP + "/32",
+				})
+			}
+			if perr := wgServer.SetPeers(peerConfigs); perr != nil {
+				logger.Error("wireguard set peers failed", "err", perr)
+				os.Exit(1)
+			}
+		}
+
 		endpoint := fmt.Sprintf("%s:%d",
 			cfg.Server.Name, // TODO: use external hostname from config
 			cfg.RemoteAccess.WireGuard.ListenPort,
@@ -274,6 +316,7 @@ func main() {
 			ServerKey: serverKey,
 			Endpoint:  endpoint,
 			Keepalive: int(cfg.RemoteAccess.WireGuard.PersistentKeepalive.Seconds()),
+			Tunnel:    wgServer, // live tunnel sync for peer add/remove
 		})
 		if err != nil {
 			logger.Error("wireguard service init failed", "err", err)
@@ -282,6 +325,7 @@ func main() {
 		logger.Info("wireguard service ready",
 			"server_ip", alloc.ServerIP(),
 			"subnet", alloc.Subnet(),
+			"active_peers", len(activePeers),
 		)
 	}
 
@@ -350,7 +394,7 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
 
-	serverErr := make(chan error, 1)
+	serverErr := make(chan error, 2) // capacity for LAN + WG tunnel
 	go func() {
 		if cfg.Server.TLSCertPath != "" && cfg.Server.TLSKeyPath != "" {
 			serverErr <- server.ListenAndServeTLS(cfg.Server.TLSCertPath, cfg.Server.TLSKeyPath)
@@ -359,6 +403,28 @@ func main() {
 			serverErr <- server.ListenAndServe()
 		}
 	}()
+
+	// WireGuard tunnel HTTP server — serves the same router on the
+	// virtual TUN interface so VPN clients get the same API. Uses TLS
+	// if configured; otherwise plain HTTP (within the encrypted tunnel,
+	// so double-encryption is optional).
+	if wgServer != nil {
+		wgHTTPServer := &http.Server{
+			Handler:      router,
+			ReadTimeout:  cfg.Server.ReadTimeout,
+			WriteTimeout: cfg.Server.WriteTimeout,
+		}
+		go func() {
+			logger.Info("wireguard HTTP listener starting",
+				"addr", wgServer.Listener().Addr().String(),
+			)
+			if cfg.Server.TLSCertPath != "" && cfg.Server.TLSKeyPath != "" {
+				serverErr <- wgHTTPServer.ServeTLS(wgServer.Listener(), cfg.Server.TLSCertPath, cfg.Server.TLSKeyPath)
+			} else {
+				serverErr <- wgHTTPServer.Serve(wgServer.Listener())
+			}
+		}()
+	}
 
 	select {
 	case <-ctx.Done():
@@ -579,4 +645,18 @@ func usecaseFile(
 
 func usecaseDevice(repo device.Repository) *usecase.DeviceService {
 	return usecase.NewDeviceService(repo)
+}
+
+// extractPort parses the port from a host:port string, falling back to
+// defaultPort if parsing fails or the port is empty.
+func extractPort(addr string, defaultPort int) int {
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil || portStr == "" {
+		return defaultPort
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port <= 0 {
+		return defaultPort
+	}
+	return port
 }
