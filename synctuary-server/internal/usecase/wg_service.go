@@ -38,8 +38,8 @@ type WGServiceConfig struct {
 	Repo      wgpeer.Repository
 	Allocator *wg.Allocator
 	ServerKey *wg.KeyPair
-	Endpoint  string           // e.g. "myserver.example.com:51820"
-	Keepalive int              // seconds
+	Endpoint  string // e.g. "myserver.example.com:51820"
+	Keepalive int    // seconds
 	Now       func() int64
 	Tunnel    TunnelPeerSyncer // optional; nil when tunnel is not running
 }

@@ -155,7 +155,7 @@ func (s *Server) Listener() net.Listener {
 
 // PeerConfig describes a WireGuard peer for IPC configuration.
 type PeerConfig struct {
-	PublicKey  [32]byte
+	PublicKey [32]byte
 	AllowedIP string // single IP, e.g. "10.100.0.2/32"
 }
 
@@ -263,7 +263,7 @@ func (s *Server) Close() error {
 // with the /32 suffix convention used by WireGuard allowed-ips.
 func (s *Server) AddTunnelPeer(publicKey [32]byte, allowedIP string) error {
 	return s.AddPeer(PeerConfig{
-		PublicKey:  publicKey,
+		PublicKey: publicKey,
 		AllowedIP: allowedIP + "/32",
 	})
 }
