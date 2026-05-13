@@ -4,7 +4,7 @@
 > not to break" briefing for any new Claude Code session picking up the
 > Synctuary project. Update it in lock-step with the architecture.
 
-**Last updated**: 2026-05-08 (after admin UI + shares/pins + video player PR #24/#26)
+**Last updated**: 2026-05-13 (after remote access WireGuard tunnel PR #28/#29/#30)
 **Repo**: https://github.com/yuttan/Synctuary (public, Apache-2.0)
 
 ---
@@ -71,10 +71,10 @@ Synctuary/
 │       │   ├── pin_service.go         ← per-device quick access pins
 │       │   └── admin_service.go       ← admin auth (bcrypt + session tokens)
 │       ├── adapter/
-│       │   ├── infrastructure/        ← impl: db (SQLite/modernc), fs, crypto, rate, secret
+│       │   ├── infrastructure/        ← impl: db (SQLite/modernc), fs, crypto, rate, secret, wg
 │       │   └── interface/http/        ← chi router + handlers + middleware
 │       │       └── admin/             ← admin Web UI (Preact/Vite/Tailwind, go:embed)
-│       ├── migrations/                ← goose SQL: 001-005 (init, uploads, favorites, shares, pins)
+│       ├── migrations/                ← goose SQL: 001-006 (init, uploads, favorites, shares, pins, wg_peers)
 │       └── integration/               ← end-to-end tests booting httptest.Server
 │
 └── synctuary-android/                 ← Android client, Apache-2.0
@@ -314,13 +314,15 @@ job must install Node.js and run `npm ci && npm run build` in
 - ✅ CI: 5 required checks, branch protection ruleset, GHCR publish on tags
 - ✅ Android UI mockups: 14 screens of Material 3 dark
 - ✅ Server: remote access Step A — config schema for `remote_access.mode` (disabled/ipv6/wireguard), IPv6 GUA auto-detection, `/api/v1/info` ipv6_urls extension, admin `/admin/api/remote-access` and `/admin/api/ipv6/status` endpoints, deploy docs with firewall examples
+- ✅ Server: remote access Step B — WireGuard peer management: domain entity, DB migration (006_wg_peers), SQLite repository, Curve25519 key gen, IPAM allocator, client config gen, WGService usecase, admin API (GET/POST/DELETE /wireguard/peers), admin UI VPN page (PR #29)
+- ✅ Server: remote access Step B — WireGuard tunnel: userspace VPN via `golang.zx2c4.com/wireguard` + gvisor netstack, no kernel TUN/CAP_NET_ADMIN needed, live peer sync (TunnelPeerSyncer), parallel HTTP server on virtual TUN interface (PR #30)
+- ✅ Server: remote access Step C — Dockerfile `EXPOSE 51820/udp`, docker-compose.yml UDP port mapping, config.example.yml remote_access section (PR #29, #30)
 - ✅ Documentation: SPEC.md, PROTOCOL.md v0.3.0 (§10 Shares, §11 Pins), deploy/README.md, this file
 
 ### Next up (priority order)
-1. **Remote access** — Step A (Config + IPv6 direct mode) done: `remote_access` config schema, IPv6 GUA detection, `/api/v1/info` extension, admin status endpoints, deploy docs. Step B (WireGuard VPN adapter via golang.zx2c4.com/wireguard + gvisor) remains.
-2. **Real-device integration testing** — Android APK + running server on the LAN, end-to-end §4 pairing flow verification.
-3. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
-4. **iOS client** — deferred until test device is available.
+1. **Real-device integration testing** — Android APK + running server on the LAN, end-to-end §4 pairing flow verification.
+2. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+3. **iOS client** — deferred until test device is available.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
