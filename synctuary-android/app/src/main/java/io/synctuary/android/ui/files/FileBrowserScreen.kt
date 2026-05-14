@@ -501,7 +501,7 @@ private fun entryVisual(entry: FileEntry): EntryVisual {
 }
 
 private fun entrySubtext(entry: FileEntry): String {
-    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         .format(Date(entry.modified_at * 1000))
     return if (entry.type == "dir") {
         date

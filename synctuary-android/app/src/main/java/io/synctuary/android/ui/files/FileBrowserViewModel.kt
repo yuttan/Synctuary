@@ -148,7 +148,9 @@ class FileBrowserViewModel @JvmOverloads constructor(
                     // SAF tree URI — create a file inside the chosen folder.
                     val treeDoc = DocumentFile.fromTreeUri(app, Uri.parse(folderUri))
                     val mime = entry.mime_type ?: "application/octet-stream"
-                    val destDoc = treeDoc?.createFile(mime, name)
+                    // Deduplicate: if "photo.jpg" exists, try "photo (1).jpg", etc.
+                    val safeName = deduplicateSafName(treeDoc, name)
+                    val destDoc = treeDoc?.createFile(mime, safeName)
                         ?: throw IllegalStateException("Cannot create file in download folder")
                     repo.downloadFileToUri(remotePath, app.contentResolver, destDoc.uri) { received, total ->
                         _uiState.update {
@@ -159,7 +161,7 @@ class FileBrowserViewModel @JvmOverloads constructor(
                 } else {
                     // Fallback: app-private external files dir.
                     val destDir = app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: app.filesDir
-                    val destFile = java.io.File(destDir, name)
+                    val destFile = deduplicateLocalFile(destDir, name)
                     repo.downloadFile(remotePath, destFile) { received, total ->
                         _uiState.update {
                             it.copy(downloadState = TransferState.Running(name, received, total))
@@ -252,6 +254,41 @@ class FileBrowserViewModel @JvmOverloads constructor(
             ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
             ?: uri.lastPathSegment
             ?: "file"
+    }
+
+    /**
+     * Find a non-conflicting name inside a SAF directory.
+     * "photo.jpg" -> "photo (1).jpg" -> "photo (2).jpg" etc.
+     */
+    private fun deduplicateSafName(parent: DocumentFile?, name: String): String {
+        if (parent == null) return name
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var candidate = name
+        var i = 1
+        while (parent.findFile(candidate) != null) {
+            candidate = "$base ($i)$ext"
+            i++
+        }
+        return candidate
+    }
+
+    /**
+     * Find a non-conflicting name inside a local directory.
+     * "photo.jpg" -> "photo (1).jpg" -> "photo (2).jpg" etc.
+     */
+    private fun deduplicateLocalFile(dir: java.io.File, name: String): java.io.File {
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var candidate = java.io.File(dir, name)
+        var i = 1
+        while (candidate.exists()) {
+            candidate = java.io.File(dir, "$base ($i)$ext")
+            i++
+        }
+        return candidate
     }
 }
 

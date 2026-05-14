@@ -128,6 +128,18 @@ private fun SynctuaryNavHost() {
     // (preview, favorite detail, etc.) it pops the nav stack instead.
     BackHandler(enabled = true) {
         if (currentRoute != null && currentRoute !in tabRoutes) {
+            // When leaving a media preview via gesture, restore orientation
+            // so the app doesn't stay stuck in landscape (#4).
+            if (currentRoute == NavRoute.MediaPreview.route) {
+                activity?.let { act ->
+                    act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                    val window = act.window
+                    val insets = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                    insets.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    insets.systemBarsBehavior =
+                        androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+                }
+            }
             navController.popBackStack()
         }
         // On tab screens: do nothing — swallow the gesture.
@@ -267,6 +279,19 @@ private fun SynctuaryNavHost() {
                     listName = name,
                     viewModel = favoritesVm,
                     onBack = { navController.popBackStack() },
+                    onItemTap = { path ->
+                        // Navigate to the file browser at the given path.
+                        // For folders, browse into it; for files, browse the parent.
+                        val fileName = path.substringAfterLast('/')
+                        val isLikelyFolder = '.' !in fileName
+                        val targetDir = if (isLikelyFolder) path
+                                        else path.substringBeforeLast('/', "/")
+                        fileBrowserVm.loadDirectory(targetDir)
+                        navController.navigate(NavRoute.TabFiles.route) {
+                            popUpTo(NavRoute.TabFiles.route) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
                 )
             }
 
@@ -292,7 +317,18 @@ private fun SynctuaryNavHost() {
                     remotePath = path,
                     viewModel = previewVm,
                     videoPlayerVm = videoPlayerVm,
-                    onBack = { navController.popBackStack() },
+                    onBack = {
+                        // Restore orientation before navigating back (#4).
+                        activity?.let { act ->
+                            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                            val w = act.window
+                            val ic = androidx.core.view.WindowCompat.getInsetsController(w, w.decorView)
+                            ic.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                            ic.systemBarsBehavior =
+                                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+                        }
+                        navController.popBackStack()
+                    },
                     onFullscreenChanged = { fullscreen, videoWidth, videoHeight ->
                         activity?.let { act ->
                             val window = act.window

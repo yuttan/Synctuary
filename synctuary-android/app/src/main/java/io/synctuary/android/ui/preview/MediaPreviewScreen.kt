@@ -127,7 +127,8 @@ fun MediaPreviewScreen(
     val scope = rememberCoroutineScope()
 
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
-    var isFullscreen by rememberSaveable { mutableStateOf(false) }
+    // Start in fullscreen for video files (#6).
+    var isFullscreen by rememberSaveable { mutableStateOf(true) }
     var isLocked by rememberSaveable { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
     var showInfoPanel by remember { mutableStateOf(false) }
@@ -148,13 +149,19 @@ fun MediaPreviewScreen(
         }
     }
 
-    // Build ExoPlayer
+    // Get or build ExoPlayer — survives config changes (orientation, fullscreen)
+    // because the ViewModel holds the player across recompositions (#5).
     val contentUrl = videoPlayerVm.contentUrl(remotePath)
-    val exoPlayer = remember { videoPlayerVm.buildPlayer(remotePath, contentUrl) }
+    val exoPlayer = remember { videoPlayerVm.getOrBuildPlayer(remotePath, contentUrl) }
 
-    // Lifecycle: release player on dispose
+    // Release player when leaving this screen (not on config changes).
     DisposableEffect(Unit) {
-        onDispose { videoPlayerVm.onCleared() }
+        onDispose { videoPlayerVm.releasePlayer() }
+    }
+
+    // Trigger fullscreen on first composition so the activity matches (#6).
+    LaunchedEffect(Unit) {
+        onFullscreenChanged(true, 0, 0)
     }
 
     // Poll player state at ~10fps for progress updates

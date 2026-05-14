@@ -14,7 +14,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +49,7 @@ fun FavoriteListDetailScreen(
     listName: String,
     viewModel: FavoritesViewModel,
     onBack: () -> Unit,
+    onItemTap: (path: String) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -117,6 +120,7 @@ fun FavoriteListDetailScreen(
                         items(detail.items, key = { it.path }) { item ->
                             FavoriteItemRow(
                                 item = item,
+                                onTap = { onItemTap(item.path) },
                                 onRemove = {
                                     viewModel.removeItemFromList(listId, item.path)
                                 },
@@ -133,23 +137,28 @@ fun FavoriteListDetailScreen(
 @Composable
 private fun FavoriteItemRow(
     item: FavoriteItemDto,
+    onTap: () -> Unit,
     onRemove: () -> Unit,
 ) {
     val fileName = item.path.substringAfterLast('/')
     val dirPath = item.path.substringBeforeLast('/', "/")
     val addedDate = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         .format(Date(item.added_at * 1000))
+    // Guess if the item is a directory by checking for a file extension.
+    val isLikelyFolder = '.' !in fileName
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onTap)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            Icons.Filled.InsertDriveFile,
+            if (isLikelyFolder) Icons.Filled.Folder else Icons.Filled.InsertDriveFile,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = if (isLikelyFolder) MaterialTheme.colorScheme.primary
+                   else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(24.dp),
         )
         Spacer(Modifier.width(14.dp))
