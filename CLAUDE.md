@@ -312,6 +312,24 @@ On Windows (cmd / PowerShell / MINGW64), the `-config` flag value must be
 double-quoted: `./synctuaryd.exe -config="config.local.yml"`. Without
 quotes the flag parser may not receive the value correctly.
 
+### 6.12 Gradle daemon needs JAVA_TOOL_OPTIONS for Unix domain sockets (Android, 2026-05-14)
+
+`org.gradle.jvmargs` in `gradle.properties` passes `-Djdk.net.unixdomain.tmpdir`
+to the daemon, but Gradle 8.10.2 silently drops it from the daemon command
+line. The daemon then fails with "Unable to establish loopback connection"
+internally (`PipeImpl` → `UnixDomainSockets.connect0`).
+
+Workaround: set `JAVA_TOOL_OPTIONS` which the JVM reads unconditionally:
+
+```sh
+export JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=C:/tmp"
+export GRADLE_OPTS="-Djdk.net.unixdomain.tmpdir=C:/tmp -Djava.io.tmpdir=C:/tmp"
+./gradlew assembleDebug
+```
+
+Both env vars are needed: `GRADLE_OPTS` for the launcher process,
+`JAVA_TOOL_OPTIONS` for the forked daemon and Kotlin compiler processes.
+
 ## 7. Phase status (what's done, what's next)
 
 ### Done (v0.6 = 2026-05-08)
