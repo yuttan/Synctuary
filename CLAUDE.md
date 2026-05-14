@@ -306,6 +306,12 @@ Also pass `GRADLE_OPTS="-Djdk.net.unixdomain.tmpdir=C:/tmp -Djava.io.tmpdir=C:/t
 for the launcher JVM. Additionally, `java.exe` needs a Windows Firewall
 inbound+outbound allow rule (JDK 17 daemon uses TCP loopback for IPC).
 
+### 6.11 Windows shell quoting for Go flag args (Server, 2026-05-14)
+
+On Windows (cmd / PowerShell / MINGW64), the `-config` flag value must be
+double-quoted: `./synctuaryd.exe -config="config.local.yml"`. Without
+quotes the flag parser may not receive the value correctly.
+
 ## 7. Phase status (what's done, what's next)
 
 ### Done (v0.6 = 2026-05-08)
