@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,15 +54,18 @@ fun FavoriteListDetailScreen(
         viewModel.loadListDetail(listId)
     }
 
+    // Clean up selected list when this composable leaves composition,
+    // rather than in the onClick handler where it races with popBackStack.
+    DisposableEffect(Unit) {
+        onDispose { viewModel.clearSelectedList() }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(listName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        viewModel.clearSelectedList()
-                        onBack()
-                    }) {
+                    IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -76,13 +80,14 @@ fun FavoriteListDetailScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            val detail = state.selectedList
             when {
                 state.selectedListLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
-                state.selectedList == null -> {
+                detail == null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             "Failed to load list",
@@ -91,7 +96,7 @@ fun FavoriteListDetailScreen(
                         )
                     }
                 }
-                state.selectedList!!.items.isEmpty() -> {
+                detail.items.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
@@ -109,7 +114,7 @@ fun FavoriteListDetailScreen(
                 }
                 else -> {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(state.selectedList!!.items, key = { it.path }) { item ->
+                        items(detail.items, key = { it.path }) { item ->
                             FavoriteItemRow(
                                 item = item,
                                 onRemove = {
