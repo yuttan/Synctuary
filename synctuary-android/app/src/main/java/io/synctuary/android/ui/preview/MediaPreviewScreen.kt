@@ -118,7 +118,7 @@ fun MediaPreviewScreen(
     viewModel: PreviewViewModel,
     videoPlayerVm: VideoPlayerViewModel,
     onBack: () -> Unit,
-    onFullscreenChanged: (Boolean) -> Unit,
+    onFullscreenChanged: (fullscreen: Boolean, videoWidth: Int, videoHeight: Int) -> Unit,
 ) {
     val fileName = remotePath.substringAfterLast('/')
     val context = LocalContext.current
@@ -165,11 +165,18 @@ fun MediaPreviewScreen(
         }
     }
 
-    // Sync controls visibility with system UI (only hides; MainActivity manages fullscreen behavior)
-    LaunchedEffect(controlsVisible) {
+    // Sync controls visibility with system UI.
+    // In fullscreen mode, system bars stay hidden regardless of controls visibility
+    // (the controls overlay draws on top of the video, not in system bar space).
+    LaunchedEffect(controlsVisible, isFullscreen) {
         val window = activity?.window ?: return@LaunchedEffect
         val insets = WindowCompat.getInsetsController(window, window.decorView)
-        if (controlsVisible) {
+        if (isFullscreen) {
+            // Always keep system bars hidden in fullscreen, even when controls are visible.
+            insets.hide(WindowInsetsCompat.Type.systemBars())
+            insets.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else if (controlsVisible) {
             insets.show(WindowInsetsCompat.Type.systemBars())
         } else {
             insets.hide(WindowInsetsCompat.Type.systemBars())
@@ -219,7 +226,7 @@ fun MediaPreviewScreen(
                         }
                         IconButton(onClick = {
                             isFullscreen = !isFullscreen
-                            onFullscreenChanged(isFullscreen)
+                            onFullscreenChanged(isFullscreen, state.videoWidth, state.videoHeight)
                         }) {
                             Icon(
                                 if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,

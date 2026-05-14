@@ -293,23 +293,31 @@ private fun SynctuaryNavHost() {
                     viewModel = previewVm,
                     videoPlayerVm = videoPlayerVm,
                     onBack = { navController.popBackStack() },
-                    onFullscreenChanged = { fullscreen ->
+                    onFullscreenChanged = { fullscreen, videoWidth, videoHeight ->
                         activity?.let { act ->
                             val window = act.window
                             val insetsController = androidx.core.view.WindowCompat.getInsetsController(
                                 window, window.decorView
                             )
                             if (fullscreen) {
-                                // Force landscape for fullscreen video playback.
-                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                // Choose orientation based on video aspect ratio.
+                                // Portrait videos get portrait fullscreen; landscape videos
+                                // get landscape fullscreen. When dimensions are unknown,
+                                // default to landscape (most common for video content).
+                                act.requestedOrientation = if (videoHeight > videoWidth && videoWidth > 0) {
+                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                                } else {
+                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                }
                                 insetsController.hide(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
                                 insetsController.systemBarsBehavior =
                                     androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                             } else {
-                                // Restore sensor-based rotation.
-                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                // Restore full-sensor rotation so the device orientation
+                                // takes over (respects the user's rotation lock setting).
+                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                                 insetsController.show(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
