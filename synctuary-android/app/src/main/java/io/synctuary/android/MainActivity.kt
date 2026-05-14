@@ -2,6 +2,7 @@ package io.synctuary.android
 
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -121,6 +122,16 @@ private fun SynctuaryNavHost() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val showBottomNav = currentRoute in tabRoutes
+
+    // Prevent the system back gesture from sending the app to background.
+    // On tab screens the gesture is silently consumed; on detail screens
+    // (preview, favorite detail, etc.) it pops the nav stack instead.
+    BackHandler(enabled = true) {
+        if (currentRoute != null && currentRoute !in tabRoutes) {
+            navController.popBackStack()
+        }
+        // On tab screens: do nothing — swallow the gesture.
+    }
 
     Scaffold(
         bottomBar = {
