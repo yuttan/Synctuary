@@ -153,7 +153,7 @@ Synctuary/
 
 13. **Pins / Quick Access** (`PROTOCOL §11`): per-device directory bookmarks within shares. Composite key `(device_id, share_id, path)`. No server-side limit on pin count.
 
-## 4. Local development environment (Windows file-server, 2026-04-30)
+## 4. Local development environment (Windows file-server, 2026-05-14)
 
 Toolchain locations (all portable, no admin):
 
@@ -163,8 +163,8 @@ Toolchain locations (all portable, no admin):
 | golangci-lint v1.59.1 | `C:/Users/FileServer/go/bin/golangci-lint.exe` | Matches CI version |
 | OpenJDK 17 (Microsoft) | `C:/Program Files/Microsoft/jdk-17.0.18.8-hotspot/` | `JAVA_HOME` |
 | Gradle 8.10.2 (portable) | `C:/Users/FileServer/sdk/gradle-8.10.2/` | Bootstrapped wrapper jar from `lib/plugins/gradle-wrapper-main-*.jar` (see §6.3) |
+| Android SDK 34 | `C:/Users/FileServer/sdk/android/` | platform-tools + build-tools 34.0.0 + SDK platform 34 |
 | GitHub CLI | `C:/Program Files/GitHub CLI/gh.exe` | Authenticated as `yuttan` |
-| Android SDK | NOT INSTALLED locally | CI provides it; bare `assembleDebug` won't work without it |
 
 Bash commands run in MINGW64 (git-for-windows). PowerShell available too.
 
@@ -288,6 +288,23 @@ job must install Node.js and run `npm ci && npm run build` in
 
 `PlaybackParameters(speed, pitch)` requires both values `> 0.0`. Using
 `old?.pitch ?: 0f` triggers an Android lint Range error. Default to `1f`.
+
+### 6.10 JDK 17 Unix domain socket temp path (Android build, 2026-05-14)
+
+JDK 16+ on Windows uses Unix domain sockets for `java.nio.channels.Pipe`.
+When the default temp directory path is long, `UnixDomainSockets.connect0`
+fails with `Invalid argument`, which cascades into Gradle's "Unable to
+establish loopback connection" or "Could not receive a message from the daemon".
+
+Fix: set a short temp path for the JVM. User-level `~/.gradle/gradle.properties`:
+
+```properties
+org.gradle.jvmargs=-Djdk.net.unixdomain.tmpdir=C:/tmp -Djava.io.tmpdir=C:/tmp
+```
+
+Also pass `GRADLE_OPTS="-Djdk.net.unixdomain.tmpdir=C:/tmp -Djava.io.tmpdir=C:/tmp"`
+for the launcher JVM. Additionally, `java.exe` needs a Windows Firewall
+inbound+outbound allow rule (JDK 17 daemon uses TCP loopback for IPC).
 
 ## 7. Phase status (what's done, what's next)
 

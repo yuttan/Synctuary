@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -383,31 +384,101 @@ func (s *FileStorage) Stat(_ context.Context, path string) (*domainfile.FileMeta
 	}, nil
 }
 
-// detectMime is a minimal extension-based lookup. The full IANA set
-// plus magic-byte sniffing is deferred; PROTOCOL §6.1 allows either.
+// extraMimeTypes covers extensions that Go's mime.TypeByExtension
+// does not know about (or maps incorrectly on Windows where the
+// registry is authoritative). Checked BEFORE the stdlib so our
+// preferred type always wins for media files.
+var extraMimeTypes = map[string]string{
+	// Video
+	".mkv":  "video/x-matroska",
+	".m2ts": "video/mp2t",
+	".mts":  "video/mp2t",
+	".ts":   "video/mp2t",
+	".avi":  "video/x-msvideo",
+	".wmv":  "video/x-ms-wmv",
+	".flv":  "video/x-flv",
+	".webm": "video/webm",
+	".mov":  "video/quicktime",
+	".mp4":  "video/mp4",
+	".m4v":  "video/mp4",
+	".mpg":  "video/mpeg",
+	".mpeg": "video/mpeg",
+	".3gp":  "video/3gpp",
+	".ogv":  "video/ogg",
+	".vob":  "video/mpeg",
+	".rm":   "video/vnd.rn-realvideo",
+	".rmvb": "video/vnd.rn-realvideo",
+	".asf":  "video/x-ms-asf",
+	// Audio
+	".mp3":  "audio/mpeg",
+	".flac": "audio/flac",
+	".aac":  "audio/aac",
+	".ogg":  "audio/ogg",
+	".opus": "audio/opus",
+	".wma":  "audio/x-ms-wma",
+	".m4a":  "audio/mp4",
+	".wav":  "audio/wav",
+	".aiff": "audio/aiff",
+	".alac": "audio/mp4",
+	".ape":  "audio/x-ape",
+	".dsf":  "audio/dsf",
+	".dff":  "audio/x-dff",
+	// Image
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".heic": "image/heic",
+	".heif": "image/heif",
+	".avif": "image/avif",
+	".bmp":  "image/bmp",
+	".svg":  "image/svg+xml",
+	".tiff": "image/tiff",
+	".tif":  "image/tiff",
+	".ico":  "image/x-icon",
+	".jxl":  "image/jxl",
+	".raw":  "image/x-raw",
+	".cr2":  "image/x-canon-cr2",
+	".nef":  "image/x-nikon-nef",
+	".arw":  "image/x-sony-arw",
+	// Archive
+	".zip": "application/zip",
+	".rar": "application/vnd.rar",
+	".7z":  "application/x-7z-compressed",
+	".tar": "application/x-tar",
+	".gz":  "application/gzip",
+	".bz2": "application/x-bzip2",
+	".xz":  "application/x-xz",
+	".zst": "application/zstd",
+	// Document
+	".pdf":  "application/pdf",
+	".txt":  "text/plain",
+	".json": "application/json",
+	".xml":  "application/xml",
+	".csv":  "text/csv",
+	".html": "text/html",
+	".htm":  "text/html",
+	".md":   "text/markdown",
+	".yaml": "text/yaml",
+	".yml":  "text/yaml",
+	".toml": "application/toml",
+}
+
+// detectMime resolves MIME type by extension: first from our curated
+// map (ensures correct types for media files regardless of OS), then
+// from Go's mime.TypeByExtension (which consults the OS registry on
+// Windows). PROTOCOL §6.1 allows best-effort.
 func detectMime(name string) string {
 	ext := strings.ToLower(filepath.Ext(name))
-	switch ext {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	case ".heic":
-		return "image/heic"
-	case ".mp4":
-		return "video/mp4"
-	case ".mov":
-		return "video/quicktime"
-	case ".txt":
-		return "text/plain"
-	case ".json":
-		return "application/json"
-	case ".pdf":
-		return "application/pdf"
+	if ext == "" {
+		return ""
+	}
+	if t, ok := extraMimeTypes[ext]; ok {
+		return t
+	}
+	if t := mime.TypeByExtension(ext); t != "" {
+		return t
 	}
 	return ""
 }

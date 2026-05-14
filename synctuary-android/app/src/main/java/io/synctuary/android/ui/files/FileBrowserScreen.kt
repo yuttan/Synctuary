@@ -1,5 +1,6 @@
 package io.synctuary.android.ui.files
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -81,6 +82,12 @@ fun FileBrowserScreen(
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var moveEntry by remember { mutableStateOf<FileEntry?>(null) }
+
+    // Intercept system back gesture to navigate up in folder hierarchy
+    // instead of leaving the screen / sending the app to background.
+    BackHandler(enabled = state.currentPath != "/") {
+        viewModel.navigateUp()
+    }
     var detailsEntry by remember { mutableStateOf<FileEntry?>(null) }
 
     // The entry currently requesting "Save As..." — set when the user

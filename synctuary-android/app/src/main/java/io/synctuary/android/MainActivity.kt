@@ -1,5 +1,6 @@
 package io.synctuary.android
 
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -282,17 +283,22 @@ private fun SynctuaryNavHost() {
                     videoPlayerVm = videoPlayerVm,
                     onBack = { navController.popBackStack() },
                     onFullscreenChanged = { fullscreen ->
-                        activity?.window?.let { window ->
+                        activity?.let { act ->
+                            val window = act.window
                             val insetsController = androidx.core.view.WindowCompat.getInsetsController(
                                 window, window.decorView
                             )
                             if (fullscreen) {
+                                // Force landscape for fullscreen video playback.
+                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                 insetsController.hide(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
                                 insetsController.systemBarsBehavior =
                                     androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                             } else {
+                                // Restore sensor-based rotation.
+                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                 insetsController.show(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
