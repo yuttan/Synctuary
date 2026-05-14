@@ -286,68 +286,8 @@ fun MediaPreviewScreen(
                 }
             }
 
-            // Gesture feedback overlays
-            seekFeedback?.let { (pos, dur) ->
-                SeekFeedbackOverlay(currentPos = pos, duration = dur)
-            }
-
-            overlayFeedback?.let { feedback ->
-                OverlayFeedbackView(feedback = feedback)
-            }
-
-            doubleTapIndicator?.let { indicator ->
-                DoubleTapIndicatorView(indicator = indicator)
-            }
-
-            // Controls overlay (bottom)
-            AnimatedVisibility(
-                visible = controlsVisible && !isLocked,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            ) {
-                BottomControls(
-                    duration = state.duration,
-                    currentPosition = state.currentPosition,
-                    isPlaying = state.isPlaying,
-                    onSeek = { videoPlayerVm.seekTo(it) },
-                    onPlayPause = {
-                        videoPlayerVm.togglePlayPause()
-                        resetControlsTimer()
-                    },
-                    onSpeedClick = { showSpeedDialog = true },
-                    onLockToggle = { isLocked = !isLocked },
-                    currentSpeed = currentSpeed,
-                    loopState = loopState,
-                    onFrameStepForward = { videoPlayerVm.frameStepForward() },
-                    onFrameStepBackward = { videoPlayerVm.frameStepBackward() },
-                    onSetLoopA = { videoPlayerVm.setLoopPointA(state.currentPosition) },
-                    onSetLoopB = { videoPlayerVm.setLoopPointB(state.currentPosition) },
-                    onToggleLoop = { videoPlayerVm.toggleLoop(!loopState.enabled) },
-                    onClearLoop = { videoPlayerVm.clearLoop() },
-                )
-            }
-
-            // Lock mode indicator (top-right)
-            AnimatedVisibility(
-                visible = isLocked && controlsVisible,
-                modifier = Modifier.align(Alignment.TopEnd),
-            ) {
-                Card(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .clickable { isLocked = false },
-                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f)),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Icon(
-                        Icons.Default.Lock,
-                        contentDescription = "Unlock",
-                        tint = Color.White,
-                        modifier = Modifier.padding(8.dp),
-                    )
-                }
-            }
-
-            // Gesture capture layer
+            // Gesture capture layer — must be BEFORE controls so that
+            // BottomControls (seek bar, buttons) receive touch priority.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -485,6 +425,68 @@ fun MediaPreviewScreen(
                         )
                     },
             )
+
+            // Gesture feedback overlays (visual only, no touch needed)
+            seekFeedback?.let { (pos, dur) ->
+                SeekFeedbackOverlay(currentPos = pos, duration = dur)
+            }
+
+            overlayFeedback?.let { feedback ->
+                OverlayFeedbackView(feedback = feedback)
+            }
+
+            doubleTapIndicator?.let { indicator ->
+                DoubleTapIndicatorView(indicator = indicator)
+            }
+
+            // Controls overlay (bottom) — drawn after gesture layer so
+            // the seek bar and buttons receive touch events.
+            AnimatedVisibility(
+                visible = controlsVisible && !isLocked,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                BottomControls(
+                    duration = state.duration,
+                    currentPosition = state.currentPosition,
+                    isPlaying = state.isPlaying,
+                    onSeek = { videoPlayerVm.seekTo(it) },
+                    onPlayPause = {
+                        videoPlayerVm.togglePlayPause()
+                        resetControlsTimer()
+                    },
+                    onSpeedClick = { showSpeedDialog = true },
+                    onLockToggle = { isLocked = !isLocked },
+                    currentSpeed = currentSpeed,
+                    loopState = loopState,
+                    onFrameStepForward = { videoPlayerVm.frameStepForward() },
+                    onFrameStepBackward = { videoPlayerVm.frameStepBackward() },
+                    onSetLoopA = { videoPlayerVm.setLoopPointA(state.currentPosition) },
+                    onSetLoopB = { videoPlayerVm.setLoopPointB(state.currentPosition) },
+                    onToggleLoop = { videoPlayerVm.toggleLoop(!loopState.enabled) },
+                    onClearLoop = { videoPlayerVm.clearLoop() },
+                )
+            }
+
+            // Lock mode indicator (top-right)
+            AnimatedVisibility(
+                visible = isLocked && controlsVisible,
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) {
+                Card(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .clickable { isLocked = false },
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = "Unlock",
+                        tint = Color.White,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                }
+            }
         }
     }
 
