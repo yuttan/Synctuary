@@ -58,6 +58,11 @@ class DevicesViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun resetConnection() {
+        repo.resetApiCache()
+        loadDevices()
+    }
+
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }

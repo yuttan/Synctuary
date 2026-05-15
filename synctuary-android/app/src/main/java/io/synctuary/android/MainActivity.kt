@@ -5,6 +5,11 @@ import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -12,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +60,7 @@ import io.synctuary.android.ui.preview.ImagePreviewScreen
 import io.synctuary.android.ui.preview.MediaPreviewScreen
 import io.synctuary.android.ui.preview.PreviewViewModel
 import io.synctuary.android.ui.preview.VideoPlayerViewModel
+import io.synctuary.android.ui.settings.ConnectionPickerScreen
 import io.synctuary.android.ui.settings.SettingsScreen
 import io.synctuary.android.ui.settings.SettingsViewModel
 import io.synctuary.android.ui.theme.SynctuaryTheme
@@ -110,14 +117,54 @@ private fun SynctuaryNavHost() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val startRoute = if (onboardingVm.isPaired()) {
+    val isPaired = onboardingVm.isPaired()
+    val startRoute = if (isPaired) {
         NavRoute.TabFiles.route
     } else {
         NavRoute.ServerUrl.route
     }
 
+    val connectionState by onboardingVm.connectionState.collectAsState()
+
+    // On startup, check server reachability if paired
+    LaunchedEffect(isPaired) {
+        if (isPaired) {
+            onboardingVm.checkConnection()
+        }
+    }
+
+    // Navigate to ConnectionPicker when server is unreachable
+    LaunchedEffect(connectionState.reachable) {
+        if (connectionState.reachable == false) {
+            val current = navController.currentDestination?.route
+            if (current != NavRoute.ConnectionPicker.route) {
+                navController.navigate(NavRoute.ConnectionPicker.route) {
+                    launchSingleTop = true
+                }
+            }
+        } else if (connectionState.reachable == true) {
+            val current = navController.currentDestination?.route
+            if (current == NavRoute.ConnectionPicker.route) {
+                navController.popBackStack()
+            }
+            // Refresh all VMs to use the (possibly changed) active URL
+            fileBrowserVm.resetConnection()
+            favoritesVm.resetConnection()
+            devicesVm.resetConnection()
+            settingsVm.refreshState()
+        }
+    }
+
     val settingsState by settingsVm.uiState.collectAsState()
     val leftHandMode = settingsState.leftHandMode
+
+    // When active mode changes from Settings, refresh all repositories
+    val activeMode = settingsState.activeMode
+    LaunchedEffect(activeMode) {
+        fileBrowserVm.resetConnection()
+        favoritesVm.resetConnection()
+        devicesVm.resetConnection()
+    }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -128,18 +175,6 @@ private fun SynctuaryNavHost() {
     // (preview, favorite detail, etc.) it pops the nav stack instead.
     BackHandler(enabled = true) {
         if (currentRoute != null && currentRoute !in tabRoutes) {
-            // When leaving a media preview via gesture, restore orientation
-            // so the app doesn't stay stuck in landscape (#4).
-            if (currentRoute == NavRoute.MediaPreview.route) {
-                activity?.let { act ->
-                    act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-                    val window = act.window
-                    val insets = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-                    insets.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                    insets.systemBarsBehavior =
-                        androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
-                }
-            }
             navController.popBackStack()
         }
         // On tab screens: do nothing — swallow the gesture.
@@ -205,6 +240,20 @@ private fun SynctuaryNavHost() {
                 )
             }
 
+            // Connection picker (server unreachable)
+            composable(NavRoute.ConnectionPicker.route) {
+                ConnectionPickerScreen(
+                    homeUrl = onboardingVm.getHomeUrl(),
+                    remoteUrl = onboardingVm.getRemoteUrl(),
+                    activeMode = onboardingVm.getActiveMode(),
+                    connecting = connectionState.checking,
+                    error = connectionState.error,
+                    onSelectHome = { onboardingVm.switchToHome() },
+                    onSelectRemote = { url -> onboardingVm.switchToRemote(url) },
+                    onRetry = { onboardingVm.checkConnection() },
+                )
+            }
+
             // Main tabs
             composable(NavRoute.TabFiles.route) {
                 FilesTabScreen(
@@ -216,8 +265,15 @@ private fun SynctuaryNavHost() {
                         val fullPath = if (current == "/") "/${entry.name}" else "$current/${entry.name}"
                         val mime = entry.mime_type ?: ""
                         when {
-                            mime.startsWith("image/") ->
+                            mime.startsWith("image/") -> {
+                                val imageEntries = fileBrowserVm.uiState.value.filteredEntries
+                                    .filter { (it.mime_type ?: "").startsWith("image/") }
+                                val imagePaths = imageEntries.map { e ->
+                                    if (current == "/") "/${e.name}" else "$current/${e.name}"
+                                }
+                                previewVm.setImageList(imagePaths)
                                 navController.navigate(NavRoute.ImagePreview.createRoute(fullPath))
+                            }
                             mime.startsWith("video/") || mime.startsWith("audio/") ->
                                 navController.navigate(NavRoute.MediaPreview.createRoute(fullPath))
                         }
@@ -299,6 +355,10 @@ private fun SynctuaryNavHost() {
             composable(
                 route = NavRoute.ImagePreview.route,
                 arguments = listOf(navArgument("path") { type = NavType.StringType }),
+                enterTransition = { fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 4 } },
+                exitTransition = { fadeOut(tween(200)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition = { fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 4 } },
             ) { backStackEntry ->
                 val path = backStackEntry.arguments?.getString("path") ?: return@composable
                 ImagePreviewScreen(
@@ -311,24 +371,17 @@ private fun SynctuaryNavHost() {
             composable(
                 route = NavRoute.MediaPreview.route,
                 arguments = listOf(navArgument("path") { type = NavType.StringType }),
+                enterTransition = { fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 4 } },
+                exitTransition = { fadeOut(tween(200)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition = { fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 4 } },
             ) { backStackEntry ->
                 val path = backStackEntry.arguments?.getString("path") ?: return@composable
                 MediaPreviewScreen(
                     remotePath = path,
                     viewModel = previewVm,
                     videoPlayerVm = videoPlayerVm,
-                    onBack = {
-                        // Restore orientation before navigating back (#4).
-                        activity?.let { act ->
-                            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-                            val w = act.window
-                            val ic = androidx.core.view.WindowCompat.getInsetsController(w, w.decorView)
-                            ic.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                            ic.systemBarsBehavior =
-                                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
-                        }
-                        navController.popBackStack()
-                    },
+                    onBack = { navController.popBackStack() },
                     onFullscreenChanged = { fullscreen, videoWidth, videoHeight ->
                         activity?.let { act ->
                             val window = act.window
@@ -353,7 +406,7 @@ private fun SynctuaryNavHost() {
                             } else {
                                 // Restore full-sensor rotation so the device orientation
                                 // takes over (respects the user's rotation lock setting).
-                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                 insetsController.show(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
@@ -382,7 +435,7 @@ private fun SynctuaryNavHost() {
             filePath = path,
             secretStore = secretStore,
             onDismiss = { favDialogFile = null },
-            onDone = { favDialogFile = null },
+            onDone = { favDialogFile = null; favoritesVm.loadLists() },
         )
     }
 }

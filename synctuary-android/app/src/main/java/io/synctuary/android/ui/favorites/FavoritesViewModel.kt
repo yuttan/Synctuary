@@ -29,6 +29,11 @@ class FavoritesViewModel @JvmOverloads constructor(
         loadLists()
     }
 
+    fun resetConnection() {
+        repo.resetApiCache()
+        loadLists()
+    }
+
     fun loadLists() {
         _uiState.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {

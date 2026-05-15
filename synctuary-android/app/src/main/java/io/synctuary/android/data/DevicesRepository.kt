@@ -7,19 +7,29 @@ import io.synctuary.android.data.secret.SecretStore
 
 class DevicesRepository(private val secretStore: SecretStore) {
 
-    private val api by lazy {
+    private var api: io.synctuary.android.data.api.SynctuaryApi? = null
+    private var cachedUrl: String? = null
+
+    private fun authenticatedApi(): io.synctuary.android.data.api.SynctuaryApi {
         val paired = secretStore.loadPairedDevice()
             ?: throw IllegalStateException("not paired")
-        NetworkModule.create(
+        if (api != null && cachedUrl == paired.serverUrl) return api!!
+        cachedUrl = paired.serverUrl
+        return NetworkModule.create(
             baseUrl = paired.serverUrl,
             fingerprint = paired.serverFingerprint,
             authInterceptor = AuthInterceptor(secretStore),
-        )
+        ).also { api = it }
     }
 
-    suspend fun listAll(): List<DeviceDto> = api.devicesList().devices
+    fun resetApiCache() {
+        api = null
+        cachedUrl = null
+    }
+
+    suspend fun listAll(): List<DeviceDto> = authenticatedApi().devicesList().devices
 
     suspend fun revoke(deviceId: String) {
-        api.devicesRevoke(deviceId)
+        authenticatedApi().devicesRevoke(deviceId)
     }
 }

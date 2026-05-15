@@ -23,9 +23,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     private fun buildState(): SettingsUiState {
+        val homeUrl = secretStore.loadHomeUrl()
+        val remoteUrl = secretStore.loadRemoteUrl() ?: ""
+        val activeMode = secretStore.getActiveMode()
         val paired = secretStore.loadPairedDevice()
         return SettingsUiState(
-            serverUrl = paired?.serverUrl ?: "",
+            serverUrl = homeUrl,
+            remoteUrl = remoteUrl,
+            activeMode = activeMode,
             serverId = paired?.serverId?.let { B64Url.encode(it) } ?: "",
             tlsFingerprint = paired?.serverFingerprint?.let { formatFingerprint(it) } ?: "",
             deviceName = "",
@@ -54,6 +59,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun refreshState() {
+        _uiState.value = buildState()
+    }
+
     fun loadServerInfo() {
         viewModelScope.launch {
             try {
@@ -69,6 +78,26 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (_: Exception) { }
         }
+    }
+
+    fun updateHomeUrl(url: String) {
+        secretStore.updateServerUrl(url)
+        _uiState.update { it.copy(serverUrl = url) }
+    }
+
+    fun updateRemoteUrl(url: String) {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) {
+            secretStore.saveRemoteUrl(null)
+        } else {
+            secretStore.saveRemoteUrl(trimmed)
+        }
+        _uiState.update { it.copy(remoteUrl = trimmed) }
+    }
+
+    fun setActiveMode(mode: String) {
+        secretStore.setActiveMode(mode)
+        _uiState.update { it.copy(activeMode = mode) }
     }
 
     fun setLeftHandMode(enabled: Boolean) {
@@ -117,6 +146,8 @@ private fun formatFingerprint(bytes: ByteArray): String {
 
 data class SettingsUiState(
     val serverUrl: String = "",
+    val remoteUrl: String = "",
+    val activeMode: String = "home",
     val serverId: String = "",
     val tlsFingerprint: String = "",
     val protocolVersion: String = "",
