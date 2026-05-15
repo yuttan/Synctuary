@@ -78,6 +78,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN /out/synctuaryd -h 2>/dev/null || true
 
 
+# ---------- ffmpeg (static build for video thumbnails) ----------
+# mwader/static-ffmpeg publishes multi-arch static binaries (no glibc
+# dependency), so they work in distroless. Video thumbnails are optional
+# — the server auto-detects ffmpeg at startup via exec.LookPath.
+FROM mwader/static-ffmpeg:7.1 AS ffmpeg
+
+
 # ---------- runtime ----------
 FROM gcr.io/distroless/static-debian12:nonroot
 
@@ -103,6 +110,7 @@ ENV SYNCTUARY_STORAGE_ROOT_PATH=/data/files \
 WORKDIR /data
 
 COPY --from=builder /out/synctuaryd /usr/local/bin/synctuaryd
+COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
 
 # §10.2 production: TLS port 8443. §10.1 dev-plaintext also defaults
 # to 8443 — no separate http port published.

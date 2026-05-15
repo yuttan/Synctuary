@@ -4,7 +4,7 @@
 > not to break" briefing for any new Claude Code session picking up the
 > Synctuary project. Update it in lock-step with the architecture.
 
-**Last updated**: 2026-05-15 (after v0.7 — thumbnails, photo backup, shares UI PR #33)
+**Last updated**: 2026-05-15 (after v0.7 — thumbnails, photo backup, shares UI PR #33; QR pairing, share propagation, video thumbnails PR #35)
 **Repo**: https://github.com/yuttan/Synctuary (public, Apache-2.0)
 
 ---
@@ -154,6 +154,10 @@ Synctuary/
 12. **Multi-drive Shares** (`PROTOCOL §10`): named host directories exposed to clients. Each share has a 16-byte binary ID. The `share` query parameter scopes all §6 file operations. A default share provides backward compatibility with pre-v0.3.0 clients.
 
 13. **Pins / Quick Access** (`PROTOCOL §11`): per-device directory bookmarks within shares. Composite key `(device_id, share_id, path)`. No server-side limit on pin count.
+
+14. **QR one-tap pairing**: admin pairing page encodes `synctuary://pair?url=<server>&key=<base64url_master_key>` into the QR code. Android app parses this URI and calls `PairingRepository.pairWithMasterKey()`, skipping the 24-word mnemonic entry entirely. The master key is the same key derived from BIP-39 and stored at `Storage.SecretPath`.
+
+15. **Video thumbnails via ffmpeg**: server auto-detects `ffmpeg` at startup via `exec.LookPath`. If present, `ThumbnailService.Get()` extracts a frame at 1s mark and resizes it. If absent, video thumbnails are silently unavailable (graceful degradation). Docker image bundles a static ffmpeg from `mwader/static-ffmpeg`.
 
 ## 4. Local development environment (Windows file-server, 2026-05-14)
 
@@ -332,6 +336,27 @@ export GRADLE_OPTS="-Djdk.net.unixdomain.tmpdir=C:/tmp -Djava.io.tmpdir=C:/tmp"
 Both env vars are needed: `GRADLE_OPTS` for the launcher process,
 `JAVA_TOOL_OPTIONS` for the forked daemon and Kotlin compiler processes.
 
+### 6.13 Activity recreation on orientation change (Android, 2026-05-15)
+
+`MediaPreviewScreen` changes `requestedOrientation` for fullscreen video.
+Without `android:configChanges`, this triggers Activity recreation. On
+recreation, `LaunchedEffect(connectionState.reachable)` re-fires and calls
+`fileBrowserVm.resetConnection()`, which nulls `_currentShare` and
+navigates back to the shares root.
+
+Fix: add `android:configChanges="orientation|screenSize|screenLayout|
+smallestScreenSize"` to `<activity>` in `AndroidManifest.xml`. Compose
+handles recomposition internally — no Activity recreation needed.
+
+### 6.14 Trailing lambda with named args after lambda param (Kotlin, 2026-05-15)
+
+When adding a parameter after a lambda parameter (e.g., `shareId` after
+`onProgress`), existing trailing-lambda call sites break. Kotlin only
+supports trailing lambda syntax for the last lambda-typed parameter when
+no named arguments for later parameters are present. Fix: change call
+sites to use `onProgress = { ... }` named argument instead of trailing
+lambda.
+
 ## 7. Phase status (what's done, what's next)
 
 ### Done (v0.6 = 2026-05-08)
@@ -371,11 +396,19 @@ Both env vars are needed: `GRADLE_OPTS` for the launcher process,
 - ✅ Android: backup settings UI — enable/disable toggle, Wi-Fi-only switch, destination path in Settings screen (PR #33)
 - ✅ Android: natural sort order (NaturalOrderComparator) for file/folder names (PR #33)
 - ✅ Android: real-device bug fixes — back navigation, seek bar touch, fullscreen orientation, favorites detail crash (PR #33)
+- ✅ Server: video thumbnail generation via ffmpeg — auto-detected at startup, extracts frame at 1s mark (PR #35)
+- ✅ Server: share-scoped file operations — `ForRoot()` + `WithStorage()` pattern, `resolveShareStorage()` handler helper, `FileStorage.Resolve()` for ffmpeg (PR #35)
+- ✅ Server: admin pairing page returns `synctuary://pair` URIs with embedded master_key for QR one-tap pairing (PR #35)
+- ✅ Server: shares list endpoint returns `host_path` for client display (PR #35)
+- ✅ Android: QR one-tap pairing — scan admin QR code completes pairing without 24-word mnemonic (`PairingRepository.pairWithMasterKey()`) (PR #35)
+- ✅ Android: full `?share=` parameter propagation — all file operations (download, upload, delete, move, content, thumbnail) scoped to correct share (PR #35)
+- ✅ Android: video thumbnails in file browser — `isThumbnailable()` now includes `video/` MIME types (PR #35)
+- ✅ Android: `configChanges` in AndroidManifest — prevents Activity recreation on orientation change, fixes navigation reset after video playback (PR #35)
+- ✅ Docker: ffmpeg static binary via `mwader/static-ffmpeg` multi-stage copy (PR #36)
 
 ### Next up (priority order)
-1. **Real-device integration testing** — continue testing on physical device, verify thumbnail display, backup flow, shares navigation.
-2. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
-3. **iOS client** — deferred until test device is available.
+1. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+2. **iOS client** — deferred until test device is available.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
