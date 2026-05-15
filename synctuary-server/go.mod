@@ -3,6 +3,7 @@ module github.com/synctuary/synctuary-server
 go 1.22
 
 require (
+	github.com/disintegration/imaging v1.6.2
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/knadh/koanf/parsers/yaml v0.1.0
 	github.com/knadh/koanf/providers/env v1.0.0
@@ -10,6 +11,7 @@ require (
 	github.com/knadh/koanf/v2 v2.1.1
 	github.com/pressly/goose/v3 v3.21.1
 	golang.org/x/crypto v0.26.0
+	golang.org/x/image v0.19.0
 	golang.org/x/text v0.17.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 	modernc.org/sqlite v1.32.0

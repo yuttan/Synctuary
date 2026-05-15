@@ -182,6 +182,7 @@ func main() {
 	// ── repositories + storage ────────────────────────────────────
 	deviceRepo := db.NewDeviceRepository(database)
 	fileRepo := db.NewFileRepository(database)
+	thumbRepo := db.NewThumbnailRepository(database)
 	favoriteRepo := db.NewFavoriteRepository(database)
 	shareRepo := db.NewShareRepository(database)
 	pinRepo := db.NewPinRepository(database)
@@ -217,6 +218,7 @@ func main() {
 		logger.Error("file service init failed", "err", err)
 		os.Exit(1)
 	}
+	thumbSvc := usecase.NewThumbnailService(thumbRepo, storage, logger)
 	deviceSvc := usecaseDevice(deviceRepo)
 	favoriteSvc, err := usecase.NewFavoriteService(favoriteRepo, nil)
 	if err != nil {
@@ -333,6 +335,7 @@ func main() {
 	handler, err := httpapi.NewHandler(httpapi.HandlerConfig{
 		Pairing:          pairingSvc,
 		Files:            fileSvc,
+		Thumbnails:       thumbSvc,
 		Devices:          deviceSvc,
 		Favorites:        favoriteSvc,
 		Shares:           shareSvc,

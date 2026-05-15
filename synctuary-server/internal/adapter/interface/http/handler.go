@@ -44,13 +44,14 @@ const maxJSONBody = 1 << 20 // 1 MiB
 // Handler is the chi-compatible aggregate of endpoint handlers. Each
 // method binds to a route in Register.
 type Handler struct {
-	pairing   *usecase.PairingService
-	files     *usecase.FileService
-	devices   *usecase.DeviceService
-	favorites *usecase.FavoriteService
-	shares    *usecase.ShareService
-	pins      *usecase.PinService
-	deviceRP  device.Repository
+	pairing    *usecase.PairingService
+	files      *usecase.FileService
+	thumbnails *usecase.ThumbnailService
+	devices    *usecase.DeviceService
+	favorites  *usecase.FavoriteService
+	shares     *usecase.ShareService
+	pins       *usecase.PinService
+	deviceRP   device.Repository
 
 	log *slog.Logger
 
@@ -71,6 +72,7 @@ type Handler struct {
 type HandlerConfig struct {
 	Pairing          *usecase.PairingService
 	Files            *usecase.FileService
+	Thumbnails       *usecase.ThumbnailService
 	Devices          *usecase.DeviceService
 	Favorites        *usecase.FavoriteService
 	Shares           *usecase.ShareService
@@ -103,6 +105,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 	return &Handler{
 		pairing:          cfg.Pairing,
 		files:            cfg.Files,
+		thumbnails:       cfg.Thumbnails,
 		devices:          cfg.Devices,
 		favorites:        cfg.Favorites,
 		shares:           cfg.Shares,
@@ -137,6 +140,7 @@ func (h *Handler) Register(r chi.Router) {
 		r.Get("/api/v1/files", h.FilesList)
 		r.Delete("/api/v1/files", h.FilesDelete)
 		r.Get("/api/v1/files/content", h.FilesContent)
+		r.Get("/api/v1/files/thumbnail", h.FilesThumbnail)
 
 		r.Post("/api/v1/files/upload/init", h.UploadInit)
 		r.Put("/api/v1/files/upload/{id}", h.UploadChunk)
@@ -386,6 +390,47 @@ func (h *Handler) FilesContent(w http.ResponseWriter, r *http.Request) {
 		h.log.Debug("content stream", slog.String("err", err.Error()))
 	}
 }
+
+// ──────────────────────────────────────────────────────────────────
+// GET /api/v1/files/thumbnail
+// ──────────────────────────────────────────────────────────────────
+
+func (h *Handler) FilesThumbnail(w http.ResponseWriter, r *http.Request) {
+	p, ok := validatedPath(w, r.URL.Query().Get("path"))
+	if !ok {
+		return
+	}
+
+	size := DefaultThumbSize
+	if s := r.URL.Query().Get("size"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			size = n
+		}
+	}
+
+	if h.thumbnails == nil {
+		WriteError(w, http.StatusNotImplemented, "not_implemented", "thumbnail service not available")
+		return
+	}
+
+	thumb, err := h.thumbnails.Get(r.Context(), p, size)
+	if err != nil {
+		if strings.Contains(err.Error(), "unsupported mime") {
+			WriteError(w, http.StatusBadRequest, "unsupported_type", "file type does not support thumbnails")
+			return
+		}
+		h.writeFileErr(w, err, "thumbnail")
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Content-Length", strconv.Itoa(len(thumb.Data)))
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.WriteHeader(http.StatusOK)
+	w.Write(thumb.Data)
+}
+
+const DefaultThumbSize = 256
 
 // ──────────────────────────────────────────────────────────────────
 // §6.3.1 POST /api/v1/files/upload/init
