@@ -1,6 +1,7 @@
 package io.synctuary.android.ui.preview
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -36,7 +37,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.VolumeUp
@@ -49,7 +49,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -82,7 +81,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updatePadding
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -90,7 +88,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private const val CONTROLS_TIMEOUT_MS = 4_000L
+private const val CONTROLS_TIMEOUT_MS = 5_000L
 private const val SEEK_DELTA_MS = 10_000L
 private const val MIN_DRAG_DISTANCE_DP = 16
 
@@ -139,9 +137,12 @@ fun MediaPreviewScreen(
     var overlayFeedback by remember { mutableStateOf<OverlayFeedback?>(null) }
     var doubleTapIndicator by remember { mutableStateOf<DoubleTapIndicator?>(null) }
 
-    // Controls auto-hide timer
+    // Controls auto-hide timer — cancel previous before launching a new one
+    // so rapid taps don't cause premature hide.
+    var controlsTimerJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun resetControlsTimer() {
-        scope.launch {
+        controlsTimerJob?.cancel()
+        controlsTimerJob = scope.launch {
             delay(CONTROLS_TIMEOUT_MS)
             if (!showSpeedDialog && !showInfoPanel && !isLocked) {
                 controlsVisible = false
@@ -154,9 +155,21 @@ fun MediaPreviewScreen(
     val contentUrl = videoPlayerVm.contentUrl(remotePath)
     val exoPlayer = remember { videoPlayerVm.getOrBuildPlayer(remotePath, contentUrl) }
 
-    // Release player when leaving this screen (not on config changes).
+    // Release player and restore orientation when leaving this screen.
+    // Using DisposableEffect ensures this runs regardless of how the user
+    // navigates away (back button, edge swipe gesture, tab switch, etc.).
     DisposableEffect(Unit) {
-        onDispose { videoPlayerVm.releasePlayer() }
+        onDispose {
+            videoPlayerVm.releasePlayer()
+            activity?.let { act ->
+                act.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                val window = act.window
+                val ic = WindowCompat.getInsetsController(window, window.decorView)
+                ic.show(WindowInsetsCompat.Type.systemBars())
+                ic.systemBarsBehavior =
+                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+            }
+        }
     }
 
     // Trigger fullscreen on first composition so the activity matches (#6).
@@ -200,6 +213,15 @@ fun MediaPreviewScreen(
     val state by videoPlayerVm.playerState.collectAsStateWithLifecycle()
     val loopState by videoPlayerVm.loopState.collectAsStateWithLifecycle()
 
+    // Update orientation when actual video dimensions become available.
+    // The initial fullscreen call uses 0×0 (defaults to landscape);
+    // once ExoPlayer reports the real size, re-orient for portrait videos.
+    LaunchedEffect(state.videoWidth, state.videoHeight) {
+        if (isFullscreen && state.videoWidth > 0 && state.videoHeight > 0) {
+            onFullscreenChanged(true, state.videoWidth, state.videoHeight)
+        }
+    }
+
     // Enforce A-B loop boundary on each poll cycle
     LaunchedEffect(exoPlayer) {
         while (true) {
@@ -211,63 +233,25 @@ fun MediaPreviewScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            AnimatedVisibility(visible = controlsVisible && !isLocked) {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = fileName,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { showInfoPanel = true }) {
-                            Icon(Icons.Default.Info, contentDescription = "Video info")
-                        }
-                        IconButton(onClick = {
-                            isFullscreen = !isFullscreen
-                            onFullscreenChanged(isFullscreen, state.videoWidth, state.videoHeight)
-                        }) {
-                            Icon(
-                                if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Black.copy(alpha = 0.6f),
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White,
-                        actionIconContentColor = Color.White,
-                    ),
-                )
-            }
-        },
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(Color.Black),
-        ) {
+    // Use a plain Box instead of Scaffold so the TopAppBar overlays on
+    // the video without reserving layout space (which caused a black bar
+    // at the top when controls appeared in fullscreen).
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
             // ExoPlayer video surface
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
                         setKeepContentOnPlayerReset(true)
-                        resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_FIT else AspectRatioFrameLayout.RESIZE_MODE_FIT
                     }.also { it.player = exoPlayer }
                 },
                 update = { pv ->
-                    pv.resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    pv.resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_FIT else AspectRatioFrameLayout.RESIZE_MODE_FIT
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -469,8 +453,48 @@ fun MediaPreviewScreen(
                     onFrameStepBackward = { videoPlayerVm.frameStepBackward() },
                     onSetLoopA = { videoPlayerVm.setLoopPointA(state.currentPosition) },
                     onSetLoopB = { videoPlayerVm.setLoopPointB(state.currentPosition) },
-                    onToggleLoop = { videoPlayerVm.toggleLoop(!loopState.enabled) },
                     onClearLoop = { videoPlayerVm.clearLoop() },
+                )
+            }
+
+            // Top bar overlay — drawn on top of the video, not in Scaffold layout
+            AnimatedVisibility(
+                visible = controlsVisible && !isLocked,
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = fileName,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showInfoPanel = true }) {
+                            Icon(Icons.Default.Info, contentDescription = "Video info")
+                        }
+                        IconButton(onClick = {
+                            isFullscreen = !isFullscreen
+                            onFullscreenChanged(isFullscreen, state.videoWidth, state.videoHeight)
+                        }) {
+                            Icon(
+                                if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Black.copy(alpha = 0.6f),
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White,
+                        actionIconContentColor = Color.White,
+                    ),
                 )
             }
 
@@ -495,7 +519,6 @@ fun MediaPreviewScreen(
                 }
             }
         }
-    }
 
     // Speed selection dialog
     if (showSpeedDialog) {
@@ -685,7 +708,6 @@ private fun BottomControls(
     onFrameStepBackward: () -> Unit,
     onSetLoopA: () -> Unit,
     onSetLoopB: () -> Unit,
-    onToggleLoop: () -> Unit,
     onClearLoop: () -> Unit,
 ) {
     Column(
@@ -697,7 +719,7 @@ private fun BottomControls(
             )
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        // Progress bar with loop indicators
+        // Progress bar with A/B marker lines
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
@@ -708,7 +730,7 @@ private fun BottomControls(
                 fontSize = 12.sp,
                 modifier = Modifier.width(50.dp),
             )
-            Box(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier.weight(1f).height(48.dp)) {
                 androidx.compose.material3.Slider(
                     value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
                     onValueChange = { fraction ->
@@ -722,23 +744,22 @@ private fun BottomControls(
                         inactiveTrackColor = Color.White.copy(alpha = 0.3f),
                     ),
                 )
-                // Loop range overlay
-                if (loopState.enabled && loopState.pointB > loopState.pointA && duration > 0) {
-                    val startFrac = loopState.pointA.toFloat() / duration
-                    val endFrac = loopState.pointB.toFloat() / duration
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(
-                                start = (startFrac * 100).dp,
-                                end = ((1f - endFrac) * 100).dp,
-                            ),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                        )
+                // A/B marker lines drawn on top of the slider track
+                if (loopState.enabled && duration > 0) {
+                    Canvas(modifier = Modifier.matchParentSize()) {
+                        val thumbPad = 10.dp.toPx()
+                        val trackStart = thumbPad
+                        val trackWidth = size.width - thumbPad * 2
+                        fun markerX(pos: Long) = trackStart + trackWidth * (pos.toFloat() / duration).coerceIn(0f, 1f)
+
+                        if (loopState.pointA > 0) {
+                            val x = markerX(loopState.pointA)
+                            drawLine(Color(0xFF4CAF50), androidx.compose.ui.geometry.Offset(x, size.height * 0.1f), androidx.compose.ui.geometry.Offset(x, size.height * 0.9f), strokeWidth = 3.dp.toPx())
+                        }
+                        if (loopState.pointB > 0) {
+                            val x = markerX(loopState.pointB)
+                            drawLine(Color(0xFFEF5350), androidx.compose.ui.geometry.Offset(x, size.height * 0.1f), androidx.compose.ui.geometry.Offset(x, size.height * 0.9f), strokeWidth = 3.dp.toPx())
+                        }
                     }
                 }
             }
@@ -758,30 +779,13 @@ private fun BottomControls(
                 .fillMaxWidth()
                 .padding(top = 4.dp, bottom = 4.dp),
         ) {
-            // Left: lock + loop toggle
-            Row {
-                IconButton(onClick = onLockToggle) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = "Lock",
-                        tint = Color.White,
-                    )
-                }
-                IconButton(
-                    onClick = {
-                        if (loopState.enabled) {
-                            onClearLoop()
-                        } else {
-                            onToggleLoop()
-                        }
-                    },
-                ) {
-                    Icon(
-                        Icons.Default.Loop,
-                        contentDescription = "A-B Repeat",
-                        tint = if (loopState.enabled) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f),
-                    )
-                }
+            // Left: lock
+            IconButton(onClick = onLockToggle) {
+                Icon(
+                    if (isPlaying) Icons.Default.Lock else Icons.Default.LockOpen,
+                    contentDescription = "Lock",
+                    tint = Color.White,
+                )
             }
 
             // Center: frame step backward + play/pause + frame step forward
@@ -815,46 +819,34 @@ private fun BottomControls(
                 }
             }
 
-            // Right: speed + loop point buttons
+            // Right: A-B repeat button + speed
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (loopState.enabled && loopState.pointB > loopState.pointA) {
-                    // Both points set — show active indicator, tap to clear
-                    Text(
-                        text = "AB",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                                onClearLoop()
-                            }
-                            .padding(6.dp),
-                    )
-                } else if (loopState.enabled && loopState.pointA > 0) {
-                    // A set — prompt to set B
-                    Text(
-                        text = "Set B",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 11.sp,
-                        modifier = Modifier
-                            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                                onSetLoopB()
-                            }
-                            .padding(6.dp),
-                    )
-                } else if (loopState.enabled) {
-                    // Prompt to set A
-                    Text(
-                        text = "Set A",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 11.sp,
-                        modifier = Modifier
-                            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                                onSetLoopA()
-                            }
-                            .padding(6.dp),
-                    )
+                // A-B repeat: tap cycles idle → A set → looping → idle
+                val abColor = when {
+                    loopState.enabled && loopState.pointB > loopState.pointA -> MaterialTheme.colorScheme.primary
+                    loopState.enabled && loopState.pointA > 0 -> Color(0xFF4CAF50)
+                    else -> Color.White.copy(alpha = 0.4f)
                 }
+                val abLabel = when {
+                    loopState.enabled && loopState.pointB > loopState.pointA -> "A↔B"
+                    loopState.enabled && loopState.pointA > 0 -> "A · B"
+                    else -> "A-B"
+                }
+                Text(
+                    text = abLabel,
+                    color = abColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                            when {
+                                !loopState.enabled -> onSetLoopA()
+                                loopState.enabled && (loopState.pointB == 0L || loopState.pointB <= loopState.pointA) -> onSetLoopB()
+                                else -> onClearLoop()
+                            }
+                        }
+                        .padding(8.dp),
+                )
                 Text(
                     text = "${currentSpeed}x",
                     color = Color.White,
@@ -869,32 +861,17 @@ private fun BottomControls(
             }
         }
 
-        // Loop info bar (when loop is active with both points)
+        // Loop info bar (when active)
         if (loopState.enabled && loopState.pointB > loopState.pointA) {
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
+            Text(
+                text = "${formatTime(loopState.pointA)} → ${formatTime(loopState.pointB)}",
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                fontSize = 11.sp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 4.dp),
-            ) {
-                Text(
-                    text = "Loop: ${formatTime(loopState.pointA)} — ${formatTime(loopState.pointB)}",
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                    fontSize = 11.sp,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Clear",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                            onClearLoop()
-                        }
-                        .padding(4.dp),
-                )
-            }
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
         }
     }
 }

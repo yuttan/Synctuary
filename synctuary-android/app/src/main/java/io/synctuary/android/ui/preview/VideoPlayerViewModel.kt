@@ -279,6 +279,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
         exoPlayer = null
         _playerState.value = PlayerState()
+        clearLoop()
     }
 
     public override fun onCleared() {
