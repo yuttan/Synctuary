@@ -427,7 +427,9 @@ func (h *Handler) FilesThumbnail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(thumb.Data)))
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.WriteHeader(http.StatusOK)
-	w.Write(thumb.Data)
+	if _, err := w.Write(thumb.Data); err != nil {
+		h.log.Debug("thumbnail write", slog.String("err", err.Error()))
+	}
 }
 
 const DefaultThumbSize = 256
