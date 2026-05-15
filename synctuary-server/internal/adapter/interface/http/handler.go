@@ -45,15 +45,15 @@ const maxJSONBody = 1 << 20 // 1 MiB
 // Handler is the chi-compatible aggregate of endpoint handlers. Each
 // method binds to a route in Register.
 type Handler struct {
-	pairing    *usecase.PairingService
-	files      *usecase.FileService
-	thumbnails *usecase.ThumbnailService
-	devices    *usecase.DeviceService
-	favorites  *usecase.FavoriteService
-	shares     *usecase.ShareService
-	pins         *usecase.PinService
-	deviceRP     device.Repository
-	baseStorage  *fs.FileStorage
+	pairing     *usecase.PairingService
+	files       *usecase.FileService
+	thumbnails  *usecase.ThumbnailService
+	devices     *usecase.DeviceService
+	favorites   *usecase.FavoriteService
+	shares      *usecase.ShareService
+	pins        *usecase.PinService
+	deviceRP    device.Repository
+	baseStorage *fs.FileStorage
 
 	log *slog.Logger
 
