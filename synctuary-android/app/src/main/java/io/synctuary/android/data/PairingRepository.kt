@@ -40,6 +40,18 @@ class PairingRepository(
      * deterministic failure (bad mnemonic, server reject, signature
      * mismatch). Network/IO errors propagate as their original types.
      */
+    suspend fun pairWithMasterKey(
+        serverUrl: String,
+        masterKey: ByteArray,
+        deviceName: String = defaultDeviceName(),
+        platform: String = "android",
+    ): PairedDeviceSummary = withContext(Dispatchers.IO) {
+        val deviceId = ByteArray(KeyDerivation.DEVICE_ID_LEN).also { rng.nextBytes(it) }
+        val keypair: Ed25519.KeyPair = KeyDerivation.deriveDeviceKeypair(masterKey, deviceId)
+        masterKey.fill(0)
+        completePairing(serverUrl, deviceId, keypair, deviceName, platform)
+    }
+
     suspend fun pair(
         serverUrl: String,
         mnemonic: String,
@@ -64,17 +76,19 @@ class PairingRepository(
         val deviceId = ByteArray(KeyDerivation.DEVICE_ID_LEN).also { rng.nextBytes(it) }
         val keypair: Ed25519.KeyPair = KeyDerivation.deriveDeviceKeypair(masterKey, deviceId)
 
-        // Ephemeral; we no longer need master_key after deriving the
-        // device keypair. Best-effort wipe — JVM may copy it elsewhere
-        // before GC, but this is the right intent.
         masterKey.fill(0)
         seed.fill(0)
 
-        // ── 3. /info to get fingerprint for §3.3 pinning ─────────────
-        // First hit is unpinned: we have nothing to pin against until
-        // the response arrives. The user's choice to trust the
-        // network at this moment is the trust anchor (mirrors the
-        // first-pair model used by Signal, WireGuard, etc.).
+        completePairing(serverUrl, deviceId, keypair, deviceName, platform)
+    }
+
+    private suspend fun completePairing(
+        serverUrl: String,
+        deviceId: ByteArray,
+        keypair: Ed25519.KeyPair,
+        deviceName: String,
+        platform: String,
+    ): PairedDeviceSummary {
         val unpinned = NetworkModule.create(serverUrl)
         val info = try {
             unpinned.info()
@@ -102,10 +116,8 @@ class PairingRepository(
                 }
             }
 
-        // ── 4. Pin subsequent calls (when a fingerprint is available) ─
         val pinned = NetworkModule.create(serverUrl, fingerprint)
 
-        // ── 5. /pair/nonce → server-issued challenge ─────────────────
         val nonceResp = try {
             pinned.pairNonce()
         } catch (e: Exception) {
@@ -120,10 +132,6 @@ class PairingRepository(
             throw PairingException("nonce length ${nonce.size}, expected ${KeyDerivation.NONCE_LEN}")
         }
 
-        // ── 6. Build pair payload + sign ─────────────────────────────
-        // For dev-plaintext servers (§10.1) the fingerprint may be
-        // 32 zero bytes; the protocol allows that and the server
-        // verifies signatures against the same all-zero placeholder.
         val effectiveFp = fingerprint ?: ByteArray(KeyDerivation.FINGERPRINT_LEN)
         val payload = KeyDerivation.buildPairPayload(
             deviceId = deviceId,
@@ -133,7 +141,6 @@ class PairingRepository(
         )
         val signature = Ed25519.sign(keypair.privateSeed, payload)
 
-        // ── 7. /pair/register → receive device_token ─────────────────
         val regResp = try {
             pinned.pairRegister(
                 RegisterRequest(
@@ -159,7 +166,6 @@ class PairingRepository(
             )
         }
 
-        // ── 8. Persist + return summary ──────────────────────────────
         secretStore.savePairedDevice(
             serverUrl = serverUrl,
             serverId = serverId,
@@ -170,7 +176,7 @@ class PairingRepository(
             deviceToken = deviceToken,
         )
 
-        PairedDeviceSummary(
+        return PairedDeviceSummary(
             serverName = info.server_name,
             serverUrl = serverUrl,
             deviceName = deviceName,

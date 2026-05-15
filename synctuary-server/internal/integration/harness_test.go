@@ -158,6 +158,9 @@ func newTestEnv(t *testing.T, opts ...testEnvOpts) *testEnv {
 	if err != nil {
 		t.Fatalf("share svc: %v", err)
 	}
+	if _, err := shareSvc.EnsureDefault(context.Background(), storeRoot); err != nil {
+		t.Fatalf("ensure default share: %v", err)
+	}
 	pinSvc, err := usecase.NewPinService(pinRepo, shareRepo, nil)
 	if err != nil {
 		t.Fatalf("pin svc: %v", err)
@@ -172,6 +175,7 @@ func newTestEnv(t *testing.T, opts ...testEnvOpts) *testEnv {
 		Shares:           shareSvc,
 		Pins:             pinSvc,
 		DeviceRepo:       deviceRepo,
+		BaseStorage:      storage,
 		Logger:           logger,
 		ServerID:         serverID,
 		ServerName:       "integration-test",

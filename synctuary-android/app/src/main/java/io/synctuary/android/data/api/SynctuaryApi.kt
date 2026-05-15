@@ -57,19 +57,21 @@ interface SynctuaryApi {
     suspend fun filesContent(
         @Query("path") path: String,
         @Header("Range") range: String? = null,
+        @Query("share") share: String? = null,
     ): Response<ResponseBody>
 
     @DELETE("api/v1/files")
     suspend fun filesDelete(
         @Query("path") path: String,
         @Query("recursive") recursive: Boolean = false,
+        @Query("share") share: String? = null,
     ): Response<Unit>
 
     @POST("api/v1/files/move")
-    suspend fun filesMove(@Body body: MoveRequest): Response<Unit>
+    suspend fun filesMove(@Body body: MoveRequest, @Query("share") share: String? = null): Response<Unit>
 
     @POST("api/v1/files/upload/init")
-    suspend fun uploadInit(@Body body: UploadInitRequest): UploadInitResponse
+    suspend fun uploadInit(@Body body: UploadInitRequest, @Query("share") share: String? = null): UploadInitResponse
 
     @PUT("api/v1/files/upload/{id}")
     suspend fun uploadChunk(

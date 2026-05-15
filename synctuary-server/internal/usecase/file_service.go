@@ -67,6 +67,20 @@ func WithLogger(l *slog.Logger) FileServiceOption {
 	return func(s *FileService) { s.log = l }
 }
 
+// WithStorage returns a shallow copy of this FileService that uses a
+// different FileStorage. All other dependencies (repo, uploads, config)
+// are shared. Used to scope file operations to a share's HostPath.
+func (s *FileService) WithStorage(storage file.FileStorage) *FileService {
+	return &FileService{
+		repo:          s.repo,
+		storage:       storage,
+		uploads:       s.uploads,
+		dedupFallback: s.dedupFallback,
+		dedupTimeout:  s.dedupTimeout,
+		log:           s.log,
+	}
+}
+
 // InitUpload implements PROTOCOL §6.3.1:
 //
 //  1. If a distinct file already sits at params.Path and overwrite

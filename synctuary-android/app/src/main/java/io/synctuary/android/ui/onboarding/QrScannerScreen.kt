@@ -56,6 +56,7 @@ import java.util.concurrent.Executors
 @Composable
 fun QrScannerScreen(
     onScanned: (String) -> Unit,
+    onPairingUri: ((url: String, masterKeyB64: String) -> Unit)? = null,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -98,7 +99,18 @@ fun QrScannerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                onBarcodeDetected = onScanned,
+                onBarcodeDetected = { result ->
+                    when (result.type) {
+                        QrResultType.PAIRING_URI -> {
+                            if (onPairingUri != null && result.masterKeyB64 != null) {
+                                onPairingUri(result.url, result.masterKeyB64)
+                            } else {
+                                onScanned(result.url)
+                            }
+                        }
+                        QrResultType.URL -> onScanned(result.url)
+                    }
+                },
             )
         } else {
             Column(
@@ -133,7 +145,7 @@ fun QrScannerScreen(
 @Composable
 private fun CameraPreviewWithAnalysis(
     modifier: Modifier = Modifier,
-    onBarcodeDetected: (String) -> Unit,
+    onBarcodeDetected: (QrResult) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -163,10 +175,10 @@ private fun CameraPreviewWithAnalysis(
                         .build()
 
                     imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                        processImage(imageProxy) { url ->
+                        processImage(imageProxy) { result ->
                             if (!scanned) {
                                 scanned = true
-                                onBarcodeDetected(url)
+                                onBarcodeDetected(result)
                             }
                         }
                     }
@@ -220,8 +232,16 @@ private fun CameraPreviewWithAnalysis(
     }
 }
 
+data class QrResult(
+    val type: QrResultType,
+    val url: String,
+    val masterKeyB64: String? = null,
+)
+
+enum class QrResultType { URL, PAIRING_URI }
+
 @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
-private fun processImage(imageProxy: ImageProxy, onDetected: (String) -> Unit) {
+private fun processImage(imageProxy: ImageProxy, onDetected: (QrResult) -> Unit) {
     val mediaImage = imageProxy.image ?: run {
         imageProxy.close()
         return
@@ -232,16 +252,31 @@ private fun processImage(imageProxy: ImageProxy, onDetected: (String) -> Unit) {
     scanner.process(inputImage)
         .addOnSuccessListener { barcodes ->
             for (barcode in barcodes) {
-                if (barcode.valueType == Barcode.TYPE_URL || barcode.valueType == Barcode.TYPE_TEXT) {
-                    val value = barcode.url?.url ?: barcode.rawValue ?: continue
-                    if (value.startsWith("http://") || value.startsWith("https://")) {
-                        onDetected(value)
-                        break
-                    }
+                val value = barcode.url?.url ?: barcode.rawValue ?: continue
+                val parsed = parsePairingUri(value)
+                if (parsed != null) {
+                    onDetected(parsed)
+                    break
+                }
+                if (value.startsWith("http://") || value.startsWith("https://")) {
+                    onDetected(QrResult(QrResultType.URL, value))
+                    break
                 }
             }
         }
         .addOnCompleteListener {
             imageProxy.close()
         }
+}
+
+private fun parsePairingUri(value: String): QrResult? {
+    if (!value.startsWith("synctuary://pair?")) return null
+    val query = value.substringAfter("synctuary://pair?")
+    val params = query.split("&").associate {
+        val (k, v) = it.split("=", limit = 2)
+        k to v
+    }
+    val url = params["url"] ?: return null
+    val key = params["key"] ?: return null
+    return QrResult(QrResultType.PAIRING_URI, url, key)
 }

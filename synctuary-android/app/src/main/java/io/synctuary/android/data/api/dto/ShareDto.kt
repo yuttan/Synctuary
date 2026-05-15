@@ -13,6 +13,7 @@ data class SharesResponse(
 data class ShareEntry(
     val id: String,
     val name: String,
+    val host_path: String? = null,
     val icon: String? = null,
     val read_only: Boolean = false,
 )

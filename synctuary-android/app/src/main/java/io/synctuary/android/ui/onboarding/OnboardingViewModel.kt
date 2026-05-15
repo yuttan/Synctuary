@@ -86,6 +86,61 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         return true
     }
 
+    // ── QR pairing (synctuary:// URI with master_key) ────────────────
+
+    fun setQrPairingData(url: String, masterKeyB64: String) {
+        _uiState.update { it.copy(serverUrl = url, qrMasterKeyB64 = masterKeyB64) }
+    }
+
+    fun hasQrMasterKey(): Boolean =
+        _uiState.value.qrMasterKeyB64 != null
+
+    fun startQrPairing() {
+        val state = _uiState.value
+        val keyB64 = state.qrMasterKeyB64 ?: return
+
+        _uiState.update {
+            it.copy(
+                pairingSteps = qrSteps(),
+                pairingError = null,
+                pairingDone = false,
+            )
+        }
+
+        viewModelScope.launch {
+            advanceStep(0, StepStatus.ACTIVE)
+            try {
+                val masterKey = android.util.Base64.decode(
+                    keyB64, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+                )
+                advanceStep(0, StepStatus.DONE)
+                advanceStep(1, StepStatus.ACTIVE)
+                val summary = repo.pairWithMasterKey(state.serverUrl, masterKey)
+                advanceStep(1, StepStatus.DONE)
+                advanceStep(2, StepStatus.DONE)
+                advanceStep(3, StepStatus.DONE)
+                _uiState.update {
+                    it.copy(pairingDone = true, pairingSummary = summary)
+                }
+            } catch (e: Exception) {
+                val activeIdx = _uiState.value.pairingSteps
+                    .indexOfFirst { s -> s.status == StepStatus.ACTIVE }
+                    .takeIf { i -> i >= 0 } ?: 1
+                advanceStep(activeIdx, StepStatus.ERROR)
+                _uiState.update {
+                    it.copy(pairingError = e.message ?: "Unknown error")
+                }
+            }
+        }
+    }
+
+    private fun qrSteps(): List<PairingStep> = listOf(
+        PairingStep("Decode master_key from QR", StepStatus.PENDING),
+        PairingStep("Device keypair generation (Ed25519)", StepStatus.PENDING),
+        PairingStep("Sign and send challenge", StepStatus.PENDING),
+        PairingStep("Receive and save device_token", StepStatus.PENDING),
+    )
+
     // ── Screen 2: Mnemonic ──────────────────────────────────────────
 
     fun setWord(index: Int, word: String) {
@@ -147,7 +202,7 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun retryPairing() {
-        startPairing()
+        if (hasQrMasterKey()) startQrPairing() else startPairing()
     }
 
     private fun advanceStep(index: Int, status: StepStatus) {
@@ -172,6 +227,7 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
 data class OnboardingUiState(
     val serverUrl: String = "https://",
     val serverUrlError: String? = null,
+    val qrMasterKeyB64: String? = null,
     val words: List<String> = List(24) { "" },
     val mnemonicError: String? = null,
     val pairingSteps: List<PairingStep> = emptyList(),

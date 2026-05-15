@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/fs"
 	"github.com/synctuary/synctuary-server/internal/domain/device"
 	dfile "github.com/synctuary/synctuary-server/internal/domain/file"
 	"github.com/synctuary/synctuary-server/internal/domain/pin"
@@ -44,14 +45,15 @@ const maxJSONBody = 1 << 20 // 1 MiB
 // Handler is the chi-compatible aggregate of endpoint handlers. Each
 // method binds to a route in Register.
 type Handler struct {
-	pairing    *usecase.PairingService
-	files      *usecase.FileService
-	thumbnails *usecase.ThumbnailService
-	devices    *usecase.DeviceService
-	favorites  *usecase.FavoriteService
-	shares     *usecase.ShareService
-	pins       *usecase.PinService
-	deviceRP   device.Repository
+	pairing     *usecase.PairingService
+	files       *usecase.FileService
+	thumbnails  *usecase.ThumbnailService
+	devices     *usecase.DeviceService
+	favorites   *usecase.FavoriteService
+	shares      *usecase.ShareService
+	pins        *usecase.PinService
+	deviceRP    device.Repository
+	baseStorage *fs.FileStorage
 
 	log *slog.Logger
 
@@ -78,6 +80,7 @@ type HandlerConfig struct {
 	Shares           *usecase.ShareService
 	Pins             *usecase.PinService
 	DeviceRepo       device.Repository
+	BaseStorage      *fs.FileStorage
 	Logger           *slog.Logger
 	ServerID         []byte
 	ServerName       string
@@ -111,6 +114,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		shares:           cfg.Shares,
 		pins:             cfg.Pins,
 		deviceRP:         cfg.DeviceRepo,
+		baseStorage:      cfg.BaseStorage,
 		log:              cfg.Logger,
 		serverID:         cfg.ServerID,
 		serverName:       cfg.ServerName,
@@ -288,6 +292,43 @@ func (h *Handler) PairRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// resolveShareStorage returns a share-scoped FileStorage for the
+// request. If ?share= is present, its HostPath is used as the
+// filesystem root; otherwise the default share is used.
+func (h *Handler) resolveShareStorage(w http.ResponseWriter, r *http.Request) (dfile.FileStorage, bool) {
+	ctx := r.Context()
+	shareParam := r.URL.Query().Get("share")
+
+	var s *share.Share
+	var err error
+	if shareParam == "" {
+		s, err = h.shares.GetDefault(ctx)
+	} else {
+		id, derr := b64url.DecodeString(shareParam)
+		if derr != nil || len(id) != 16 {
+			WriteError(w, http.StatusBadRequest, "bad_request", "share must be base64url 16-byte id")
+			return nil, false
+		}
+		s, err = h.shares.GetByID(ctx, id)
+	}
+	if err != nil {
+		WriteError(w, http.StatusNotFound, "share_not_found", "share does not exist")
+		return nil, false
+	}
+
+	if h.baseStorage == nil {
+		return nil, false
+	}
+
+	scoped, err := h.baseStorage.ForRoot(s.HostPath)
+	if err != nil {
+		h.log.Error("share storage", slog.String("err", err.Error()), slog.String("host_path", s.HostPath))
+		WriteError(w, http.StatusInternalServerError, "internal_error", "share storage init failed")
+		return nil, false
+	}
+	return scoped, true
+}
+
 // ──────────────────────────────────────────────────────────────────
 // §6.1 GET /api/v1/files
 // ──────────────────────────────────────────────────────────────────
@@ -299,7 +340,12 @@ func (h *Handler) FilesList(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := parseBool(r.URL.Query().Get("hash"), false)
 
-	result, err := h.files.List(r.Context(), p, hash)
+	storage, ok := h.resolveShareStorage(w, r)
+	if !ok {
+		return
+	}
+	files := h.files.WithStorage(storage)
+	result, err := files.List(r.Context(), p, hash)
 	if err != nil {
 		h.writeFileErr(w, err, "list")
 		return
@@ -344,7 +390,12 @@ func (h *Handler) FilesContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := h.files.Stat(r.Context(), p)
+	storage, ok := h.resolveShareStorage(w, r)
+	if !ok {
+		return
+	}
+	files := h.files.WithStorage(storage)
+	meta, err := files.Stat(r.Context(), p)
 	if err != nil {
 		h.writeFileErr(w, err, "stat")
 		return
@@ -361,7 +412,7 @@ func (h *Handler) FilesContent(w http.ResponseWriter, r *http.Request) {
 	if full {
 		readEnd = -1
 	}
-	rc, _, err := h.files.Read(r.Context(), p, start, readEnd)
+	rc, _, err := files.Read(r.Context(), p, start, readEnd)
 	if err != nil {
 		h.writeFileErr(w, err, "read")
 		return
@@ -413,7 +464,12 @@ func (h *Handler) FilesThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	thumb, err := h.thumbnails.Get(r.Context(), p, size)
+	storage, ok := h.resolveShareStorage(w, r)
+	if !ok {
+		return
+	}
+	thumbSvc := h.thumbnails.WithStorage(storage)
+	thumb, err := thumbSvc.Get(r.Context(), p, size)
 	if err != nil {
 		if strings.Contains(err.Error(), "unsupported mime") {
 			WriteError(w, http.StatusBadRequest, "unsupported_type", "file type does not support thumbnails")
@@ -470,6 +526,12 @@ func (h *Handler) UploadInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	storage, ok := h.resolveShareStorage(w, r)
+	if !ok {
+		return
+	}
+	files := h.files.WithStorage(storage)
+
 	params := &dfile.UploadInitParams{
 		Path:      p,
 		Size:      body.Size,
@@ -477,7 +539,7 @@ func (h *Handler) UploadInit(w http.ResponseWriter, r *http.Request) {
 		Overwrite: body.Overwrite,
 		DeviceID:  d.ID,
 	}
-	result, err := h.files.InitUpload(r.Context(), params)
+	result, err := files.InitUpload(r.Context(), params)
 	switch {
 	case err == nil:
 		if result.Deduplicated {
@@ -497,7 +559,7 @@ func (h *Handler) UploadInit(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, dfile.ErrFileExists):
 		writeFileExists(w, result.Existing)
 	case errors.Is(err, dfile.ErrUploadInProgress):
-		info, aerr := h.files.ActiveByPath(r.Context(), p)
+		info, aerr := files.ActiveByPath(r.Context(), p)
 		if aerr != nil || info == nil {
 			WriteError(w, http.StatusConflict, "upload_in_progress", "another upload is active but details unavailable")
 			return
@@ -687,7 +749,12 @@ func (h *Handler) FilesDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	recursive := parseBool(r.URL.Query().Get("recursive"), false)
 
-	if err := h.files.Delete(r.Context(), p, recursive); err != nil {
+	storage, ok := h.resolveShareStorage(w, r)
+	if !ok {
+		return
+	}
+	files := h.files.WithStorage(storage)
+	if err := files.Delete(r.Context(), p, recursive); err != nil {
 		if errors.Is(err, dfile.ErrDirectoryNotEmpty) {
 			WriteError(w, http.StatusConflict, "directory_not_empty", "directory is not empty; pass recursive=true")
 			return
@@ -726,13 +793,17 @@ func (h *Handler) FilesMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.files.Move(r.Context(), from, to, body.Overwrite); err != nil {
+	storage, ok := h.resolveShareStorage(w, r)
+	if !ok {
+		return
+	}
+	files := h.files.WithStorage(storage)
+	if err := files.Move(r.Context(), from, to, body.Overwrite); err != nil {
 		switch {
 		case errors.Is(err, dfile.ErrFileNotFound):
 			WriteError(w, http.StatusNotFound, "not_found", "source path does not exist")
 		case errors.Is(err, dfile.ErrFileExists):
-			// Best-effort: populate `existing` if repo has metadata.
-			existing, _ := h.files.Stat(r.Context(), to)
+			existing, _ := files.Stat(r.Context(), to)
 			writeFileExists(w, existing)
 		default:
 			h.log.Error("move", slog.String("err", err.Error()))
@@ -810,6 +881,7 @@ func (h *Handler) SharesListClient(w http.ResponseWriter, r *http.Request) {
 		out = append(out, map[string]any{
 			"id":        b64url.EncodeToString(s.ID),
 			"name":      s.Name,
+			"host_path": s.HostPath,
 			"icon":      s.Icon,
 			"read_only": s.ReadOnly,
 		})

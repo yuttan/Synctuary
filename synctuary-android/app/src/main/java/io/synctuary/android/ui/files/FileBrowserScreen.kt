@@ -95,9 +95,14 @@ fun FileBrowserScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var moveEntry by remember { mutableStateOf<FileEntry?>(null) }
 
-    BackHandler(enabled = state.currentPath != "/" || viewModel.isAtSharesRoot) {
+    BackHandler(enabled = state.currentPath != "/" || viewModel.isAtSharesRoot || currentShare != null) {
         viewModel.navigateUp()
     }
+
+    LaunchedEffect(currentShare) {
+        previewViewModel?.currentShareId = currentShare?.id
+    }
+
     var detailsEntry by remember { mutableStateOf<FileEntry?>(null) }
 
     // The entry currently requesting "Save As..." — set when the user
@@ -580,8 +585,11 @@ private data class EntryVisual(val icon: ImageVector, val tint: Color, val bg: C
 
 private fun entryVisual(entry: FileEntry): EntryVisual {
     if (entry.type == "share") {
+        val hostPath = entry.mime_type ?: ""
+        val isDriveRoot = hostPath.matches(Regex("""^[A-Za-z]:[/\\]?$""")) || hostPath == "/"
+        val icon = if (isDriveRoot) Icons.Filled.Storage else Icons.Filled.Folder
         return EntryVisual(
-            Icons.Filled.Storage,
+            icon,
             Color(0xFF90CAF9),
             Color(0xFF90CAF9).copy(alpha = 0.12f),
         )
@@ -619,7 +627,7 @@ private fun entryVisual(entry: FileEntry): EntryVisual {
 }
 
 private fun entrySubtext(entry: FileEntry): String {
-    if (entry.type == "share") return "Shared drive"
+    if (entry.type == "share") return entry.mime_type ?: ""
     val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         .format(Date(entry.modified_at * 1000))
     return if (entry.type == "dir") {
@@ -641,6 +649,7 @@ private fun isThumbnailable(mime: String?): Boolean {
     return mime.startsWith("image/jpeg") ||
         mime.startsWith("image/png") ||
         mime.startsWith("image/gif") ||
-        mime.startsWith("image/webp")
+        mime.startsWith("image/webp") ||
+        mime.startsWith("video/")
 }
 

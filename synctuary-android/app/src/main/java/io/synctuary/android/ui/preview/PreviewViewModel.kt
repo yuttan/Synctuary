@@ -40,17 +40,21 @@ class PreviewViewModel(application: Application) : AndroidViewModel(application)
             .build()
     }
 
+    var currentShareId: String? = null
+
     fun contentUrl(remotePath: String): String {
         val paired = secretStore.loadPairedDevice()
             ?: throw IllegalStateException("not paired")
         val base = paired.serverUrl.trimEnd('/')
-        return "$base/api/v1/files/content?path=${Uri.encode(remotePath)}"
+        val shareParam = currentShareId?.let { "&share=${Uri.encode(it)}" } ?: ""
+        return "$base/api/v1/files/content?path=${Uri.encode(remotePath)}$shareParam"
     }
 
     fun thumbnailUrl(remotePath: String, size: Int = 256): String {
         val paired = secretStore.loadPairedDevice()
             ?: throw IllegalStateException("not paired")
         val base = paired.serverUrl.trimEnd('/')
-        return "$base/api/v1/files/thumbnail?path=${Uri.encode(remotePath)}&size=$size"
+        val shareParam = currentShareId?.let { "&share=${Uri.encode(it)}" } ?: ""
+        return "$base/api/v1/files/thumbnail?path=${Uri.encode(remotePath)}&size=$size$shareParam"
     }
 }

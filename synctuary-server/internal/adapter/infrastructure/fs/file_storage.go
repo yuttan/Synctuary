@@ -78,6 +78,21 @@ func NewFileStorage(root, staging string, resolver SourceResolver) (*FileStorage
 	}, nil
 }
 
+// ForRoot returns a lightweight copy of this FileStorage rooted at a
+// different directory. Staging and resolver are shared. Used to scope
+// file operations to a share's HostPath.
+func (s *FileStorage) ForRoot(root string) (*FileStorage, error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("fs: resolve root: %w", err)
+	}
+	return &FileStorage{root: abs, staging: s.staging, resolver: s.resolver}, nil
+}
+
+func (s *FileStorage) Resolve(_ context.Context, path string) (string, error) {
+	return s.resolveUserPath(path)
+}
+
 // resolveUserPath maps a PROTOCOL §1 path ("/photos/2026/foo.jpg") to
 // an absolute path under root, refusing any result that escapes root
 // via traversal. Callers have already run basic validation at the

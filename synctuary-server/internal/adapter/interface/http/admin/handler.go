@@ -5,6 +5,7 @@
 package admin
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -39,6 +40,7 @@ type Handler struct {
 	wg           *usecase.WGService // nil when mode != "wireguard"
 	log          *slog.Logger
 	configToken  string
+	masterKey    []byte // 32 bytes; included in pairing QR for one-scan onboarding
 	listenAddr   string
 	tlsEnabled   bool
 	remoteAccess config.RemoteAccessConfig
@@ -52,6 +54,7 @@ type HandlerConfig struct {
 	WG           *usecase.WGService // nil when mode != "wireguard"
 	Logger       *slog.Logger
 	ConfigToken  string // optional pre-shared token for API automation
+	MasterKey    []byte // 32 bytes; for pairing QR generation
 	ListenAddr   string // e.g. ":8443"
 	TLSEnabled   bool
 	RemoteAccess config.RemoteAccessConfig
@@ -72,6 +75,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		wg:           cfg.WG,
 		log:          cfg.Logger,
 		configToken:  cfg.ConfigToken,
+		masterKey:    cfg.MasterKey,
 		listenAddr:   cfg.ListenAddr,
 		tlsEnabled:   cfg.TLSEnabled,
 		remoteAccess: cfg.RemoteAccess,
@@ -419,9 +423,21 @@ func (h *Handler) PairingInfo(w http.ResponseWriter, r *http.Request) {
 		primary = urls[0]
 	}
 
+	b64url := base64.RawURLEncoding
+	var pairingURIs []string
+	for _, u := range urls {
+		pairingURIs = append(pairingURIs, "synctuary://pair?url="+u+"&key="+b64url.EncodeToString(h.masterKey))
+	}
+	primaryURI := ""
+	if len(pairingURIs) > 0 {
+		primaryURI = pairingURIs[0]
+	}
+
 	writeAdminJSON(w, http.StatusOK, map[string]any{
-		"url":  primary,
-		"urls": urls,
+		"url":          primary,
+		"urls":         urls,
+		"pairing_uri":  primaryURI,
+		"pairing_uris": pairingURIs,
 	})
 }
 

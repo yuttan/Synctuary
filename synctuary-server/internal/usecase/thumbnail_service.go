@@ -11,6 +11,7 @@ import (
 	_ "image/png"
 	"io"
 	"log/slog"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -20,6 +21,11 @@ import (
 
 	"github.com/synctuary/synctuary-server/internal/domain/file"
 )
+
+var ffmpegAvailable = func() bool {
+	_, err := exec.LookPath("ffmpeg")
+	return err == nil
+}()
 
 const (
 	DefaultThumbSize = 256
@@ -38,6 +44,10 @@ func NewThumbnailService(thumbs file.ThumbnailRepository, storage file.FileStora
 		log = slog.Default()
 	}
 	return &ThumbnailService{thumbs: thumbs, storage: storage, log: log}
+}
+
+func (s *ThumbnailService) WithStorage(storage file.FileStorage) *ThumbnailService {
+	return &ThumbnailService{thumbs: s.thumbs, storage: storage, log: s.log}
 }
 
 func (s *ThumbnailService) Get(ctx context.Context, path string, size int) (*file.Thumbnail, error) {
@@ -64,15 +74,26 @@ func (s *ThumbnailService) Get(ctx context.Context, path string, size int) (*fil
 		return cached, nil
 	}
 
-	rc, err := s.storage.Get(ctx, path, 0, -1)
-	if err != nil {
-		return nil, fmt.Errorf("thumbnail: read source: %w", err)
-	}
-	defer rc.Close()
-
-	data, err := generate(rc, size)
-	if err != nil {
-		return nil, fmt.Errorf("thumbnail: generate: %w", err)
+	var data []byte
+	if isVideo(meta.MimeType) {
+		absPath, err := s.storage.Resolve(ctx, path)
+		if err != nil {
+			return nil, fmt.Errorf("thumbnail: resolve path: %w", err)
+		}
+		data, err = generateFromVideo(ctx, absPath, size)
+		if err != nil {
+			return nil, fmt.Errorf("thumbnail: video generate: %w", err)
+		}
+	} else {
+		rc, err := s.storage.Get(ctx, path, 0, -1)
+		if err != nil {
+			return nil, fmt.Errorf("thumbnail: read source: %w", err)
+		}
+		defer rc.Close()
+		data, err = generate(rc, size)
+		if err != nil {
+			return nil, fmt.Errorf("thumbnail: generate: %w", err)
+		}
 	}
 
 	t := &file.Thumbnail{
@@ -114,6 +135,31 @@ func isThumbnailable(mime string) bool {
 		strings.HasPrefix(mime, "image/gif"),
 		strings.HasPrefix(mime, "image/webp"):
 		return true
+	case isVideo(mime) && ffmpegAvailable:
+		return true
 	}
 	return false
+}
+
+func isVideo(mime string) bool {
+	return strings.HasPrefix(mime, "video/")
+}
+
+func generateFromVideo(ctx context.Context, absPath string, size int) ([]byte, error) {
+	cmd := exec.CommandContext(ctx,
+		"ffmpeg",
+		"-ss", "1",
+		"-i", absPath,
+		"-vframes", "1",
+		"-f", "image2pipe",
+		"-vcodec", "png",
+		"-",
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ffmpeg: %w (stderr: %s)", err, stderr.String())
+	}
+	return generate(&stdout, size)
 }

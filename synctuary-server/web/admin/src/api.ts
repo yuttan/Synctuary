@@ -98,6 +98,8 @@ export interface Stats {
 export interface PairingInfo {
   url: string
   urls: string[]
+  pairing_uri: string
+  pairing_uris: string[]
 }
 
 export interface RemoteAccessStatus {

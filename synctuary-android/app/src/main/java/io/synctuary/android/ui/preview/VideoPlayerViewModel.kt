@@ -296,10 +296,13 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         )
     }
 
+    var currentShareId: String? = null
+
     fun contentUrl(remotePath: String): String {
         val paired = secretStore.loadPairedDevice()
             ?: throw IllegalStateException("not paired")
         val base = paired.serverUrl.trimEnd('/')
-        return "$base/api/v1/files/content?path=${android.net.Uri.encode(remotePath)}"
+        val shareParam = currentShareId?.let { "&share=${android.net.Uri.encode(it)}" } ?: ""
+        return "$base/api/v1/files/content?path=${android.net.Uri.encode(remotePath)}$shareParam"
     }
 }
