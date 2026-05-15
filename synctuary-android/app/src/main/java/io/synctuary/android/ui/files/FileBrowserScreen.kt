@@ -33,7 +33,11 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material3.FabPosition
 import io.synctuary.android.data.TransferState
 import io.synctuary.android.data.api.dto.FileEntry
+import io.synctuary.android.data.api.dto.ShareEntry
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,12 +85,12 @@ fun FileBrowserScreen(
     leftHandMode: Boolean = false,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val sharesList by viewModel.shares.collectAsState()
+    val currentShare by viewModel.currentShare.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var moveEntry by remember { mutableStateOf<FileEntry?>(null) }
 
-    // Intercept system back gesture to navigate up in folder hierarchy
-    // instead of leaving the screen / sending the app to background.
-    BackHandler(enabled = state.currentPath != "/") {
+    BackHandler(enabled = state.currentPath != "/" || viewModel.isAtSharesRoot) {
         viewModel.navigateUp()
     }
     var detailsEntry by remember { mutableStateOf<FileEntry?>(null) }
@@ -170,6 +175,41 @@ fun FileBrowserScreen(
                 TopAppBar(
                     title = { Text("Synctuary") },
                     actions = {
+                        Box {
+                            var sortMenuExpanded by remember { mutableStateOf(false) }
+                            IconButton(onClick = { sortMenuExpanded = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                            }
+                            DropdownMenu(
+                                expanded = sortMenuExpanded,
+                                onDismissRequest = { sortMenuExpanded = false },
+                            ) {
+                                SortOption.entries.forEach { option ->
+                                    val label = when (option) {
+                                        SortOption.NAME -> "Name"
+                                        SortOption.DATE -> "Date"
+                                        SortOption.SIZE -> "Size"
+                                    }
+                                    val arrow = if (state.sortBy == option) {
+                                        if (state.sortAscending) " ▲" else " ▼"
+                                    } else ""
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "$label$arrow",
+                                                color = if (state.sortBy == option)
+                                                    MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.onSurface,
+                                            )
+                                        },
+                                        onClick = {
+                                            viewModel.setSortOption(option)
+                                            sortMenuExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
                         IconButton(onClick = { viewModel.toggleSearch() }) {
                             Icon(Icons.Filled.Search, contentDescription = "Search")
                         }
@@ -181,12 +221,14 @@ fun FileBrowserScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { uploadLauncher.launch(arrayOf("*/*")) },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "Upload")
+            if (!viewModel.isAtSharesRoot) {
+                FloatingActionButton(
+                    onClick = { uploadLauncher.launch(arrayOf("*/*")) },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = "Upload")
+                }
             }
         },
         floatingActionButtonPosition = if (leftHandMode) FabPosition.Start else FabPosition.End,
@@ -197,10 +239,16 @@ fun FileBrowserScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            BreadcrumbBar(
-                path = state.currentPath,
-                onNavigate = { viewModel.navigateToBreadcrumb(it) },
-            )
+            if (!viewModel.isAtSharesRoot) {
+                BreadcrumbBar(
+                    path = state.currentPath,
+                    shareName = currentShare?.name,
+                    onNavigate = { viewModel.navigateToBreadcrumb(it) },
+                    onSharesRoot = if (sharesList.size > 1) {
+                        { viewModel.navigateUp(); Unit }
+                    } else null,
+                )
+            }
 
             TransferBanner(downloadState = state.downloadState, uploadState = state.uploadState)
 
@@ -231,7 +279,11 @@ fun FileBrowserScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = if (state.searchActive) "No matches" else "Empty folder",
+                            text = when {
+                                state.searchActive -> "No matches"
+                                viewModel.isAtSharesRoot -> "No shares configured"
+                                else -> "Empty folder"
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge,
                         )
@@ -241,14 +293,19 @@ fun FileBrowserScreen(
                     FileList(
                         entries = state.filteredEntries,
                         onTap = { entry ->
-                            if (entry.type == "dir") {
-                                viewModel.navigateInto(entry.name)
-                            } else {
-                                onPreview(entry)
+                            when (entry.type) {
+                                "share" -> {
+                                    val share = sharesList.find { it.id == entry.sha256 }
+                                    if (share != null) viewModel.selectShare(share)
+                                }
+                                "dir" -> viewModel.navigateInto(entry.name)
+                                else -> onPreview(entry)
                             }
                         },
                         onLongPress = { entry ->
-                            viewModel.selectForAction(entry)
+                            if (entry.type != "share") {
+                                viewModel.selectForAction(entry)
+                            }
                         },
                     )
                 }
@@ -349,7 +406,12 @@ private fun TransferBanner(downloadState: TransferState, uploadState: TransferSt
 }
 
 @Composable
-private fun BreadcrumbBar(path: String, onNavigate: (String) -> Unit) {
+private fun BreadcrumbBar(
+    path: String,
+    shareName: String? = null,
+    onNavigate: (String) -> Unit,
+    onSharesRoot: (() -> Unit)? = null,
+) {
     val segments = if (path == "/") listOf("/") else {
         listOf("/") + path.removePrefix("/").split("/")
     }
@@ -362,6 +424,24 @@ private fun BreadcrumbBar(path: String, onNavigate: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (shareName != null && onSharesRoot != null) {
+            Text(
+                text = shareName,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { onSharesRoot() }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            Text(
+                text = "/",
+                color = MaterialTheme.colorScheme.outline,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
         segments.forEachIndexed { index, segment ->
             if (index > 0) {
                 Text(
@@ -375,7 +455,7 @@ private fun BreadcrumbBar(path: String, onNavigate: (String) -> Unit) {
             }
             val isActive = index == segments.lastIndex
             Text(
-                text = segment,
+                text = if (index == 0 && shareName != null) "/" else segment,
                 color = if (isActive) MaterialTheme.colorScheme.onSecondaryContainer
                 else MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.bodySmall,
@@ -468,6 +548,13 @@ private fun FileRow(
 private data class EntryVisual(val icon: ImageVector, val tint: Color, val bg: Color)
 
 private fun entryVisual(entry: FileEntry): EntryVisual {
+    if (entry.type == "share") {
+        return EntryVisual(
+            Icons.Filled.Storage,
+            Color(0xFF90CAF9),
+            Color(0xFF90CAF9).copy(alpha = 0.12f),
+        )
+    }
     if (entry.type == "dir") {
         return EntryVisual(
             Icons.Filled.Folder,
@@ -501,6 +588,7 @@ private fun entryVisual(entry: FileEntry): EntryVisual {
 }
 
 private fun entrySubtext(entry: FileEntry): String {
+    if (entry.type == "share") return "Shared drive"
     val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         .format(Date(entry.modified_at * 1000))
     return if (entry.type == "dir") {
@@ -516,3 +604,4 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024L * 1024 * 1024 -> "%.1f MiB".format(bytes / (1024.0 * 1024))
     else -> "%.2f GiB".format(bytes / (1024.0 * 1024 * 1024))
 }
+

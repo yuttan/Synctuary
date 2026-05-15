@@ -20,7 +20,7 @@ android {
         minSdk                    = 26          // BiometricPrompt needs API 28; 26 floor for tonal palette.
         targetSdk                 = 34
         versionCode               = 1
-        versionName               = "0.4.0"     // tracks PROTOCOL phase (server is at v0.4 / PROTOCOL 0.2.3)
+        versionName               = "0.4.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -36,6 +36,14 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             isDebuggable        = true
+        }
+    }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+            output.outputFileName = "synctuary-${variant.versionName}-${variant.buildType.name}.apk"
         }
     }
 
