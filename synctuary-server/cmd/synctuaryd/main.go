@@ -341,6 +341,7 @@ func main() {
 		Shares:           shareSvc,
 		Pins:             pinSvc,
 		DeviceRepo:       deviceRepo,
+		BaseStorage:      storage,
 		Logger:           logger,
 		ServerID:         serverID,
 		ServerName:       cfg.Server.Name,
@@ -373,6 +374,7 @@ func main() {
 		WG:           wgSvc, // nil when mode != "wireguard"
 		Logger:       logger,
 		ConfigToken:  cfg.Admin.Token,
+		MasterKey:    masterKey,
 		ListenAddr:   cfg.Server.Addr,
 		TLSEnabled:   cfg.Server.TLSCertPath != "",
 		RemoteAccess: cfg.RemoteAccess,

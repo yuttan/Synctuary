@@ -28,12 +28,13 @@ internal class UploadManager(private val api: SynctuaryApi) {
         remotePath: String,
         overwrite: Boolean = false,
         onProgress: (uploaded: Long, total: Long) -> Unit,
+        shareId: String? = null,
     ) = withContext(Dispatchers.IO) {
         val fileSize = resolveSize(contentResolver, uri)
         val sha256 = hashSha256(contentResolver, uri)
 
         val init = try {
-            api.uploadInit(UploadInitRequest(remotePath, fileSize, sha256, overwrite))
+            api.uploadInit(UploadInitRequest(remotePath, fileSize, sha256, overwrite), share = shareId)
         } catch (e: HttpException) {
             val msg = when (e.code()) {
                 409 -> "upload blocked: another device is uploading to this path"

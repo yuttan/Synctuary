@@ -41,16 +41,16 @@ class FileRepository(private val secretStore: SecretStore) {
         authenticatedApi().sharesList().shares
     }
 
-    suspend fun deleteFile(path: String, recursive: Boolean = false) = withContext(Dispatchers.IO) {
-        val resp = authenticatedApi().filesDelete(path, recursive)
+    suspend fun deleteFile(path: String, recursive: Boolean = false, shareId: String? = null) = withContext(Dispatchers.IO) {
+        val resp = authenticatedApi().filesDelete(path, recursive, share = shareId)
         if (!resp.isSuccessful) {
             throw FileOperationException("delete failed: ${resp.code()}")
         }
     }
 
-    suspend fun moveFile(from: String, to: String, overwrite: Boolean = false) =
+    suspend fun moveFile(from: String, to: String, overwrite: Boolean = false, shareId: String? = null) =
         withContext(Dispatchers.IO) {
-            val resp = authenticatedApi().filesMove(MoveRequest(from, to, overwrite))
+            val resp = authenticatedApi().filesMove(MoveRequest(from, to, overwrite), share = shareId)
             if (!resp.isSuccessful) {
                 throw FileOperationException("move failed: ${resp.code()}")
             }
@@ -60,15 +60,16 @@ class FileRepository(private val secretStore: SecretStore) {
         remotePath: String,
         destFile: File,
         onProgress: (received: Long, total: Long?) -> Unit,
-    ): File = DownloadManager(authenticatedApi()).download(remotePath, destFile, onProgress)
+        shareId: String? = null,
+    ): File = DownloadManager(authenticatedApi()).download(remotePath, destFile, onProgress, shareId)
 
-    /** Download to a SAF URI (user-chosen folder or Save As target). */
     suspend fun downloadFileToUri(
         remotePath: String,
         resolver: ContentResolver,
         destUri: Uri,
         onProgress: (received: Long, total: Long?) -> Unit,
-    ): Uri = DownloadManager(authenticatedApi()).downloadToUri(remotePath, resolver, destUri, onProgress)
+        shareId: String? = null,
+    ): Uri = DownloadManager(authenticatedApi()).downloadToUri(remotePath, resolver, destUri, onProgress, shareId)
 
     suspend fun uploadFile(
         contentResolver: ContentResolver,
@@ -76,7 +77,8 @@ class FileRepository(private val secretStore: SecretStore) {
         remotePath: String,
         overwrite: Boolean = false,
         onProgress: (uploaded: Long, total: Long) -> Unit,
-    ) = UploadManager(authenticatedApi()).upload(contentResolver, uri, remotePath, overwrite, onProgress)
+        shareId: String? = null,
+    ) = UploadManager(authenticatedApi()).upload(contentResolver, uri, remotePath, overwrite, onProgress, shareId)
 }
 
 class FileOperationException(message: String, cause: Throwable? = null) :

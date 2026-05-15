@@ -217,6 +217,12 @@ private fun SynctuaryNavHost() {
                         onboardingVm.setServerUrl(url)
                         navController.popBackStack()
                     },
+                    onPairingUri = { url, masterKeyB64 ->
+                        onboardingVm.setQrPairingData(url, masterKeyB64)
+                        navController.navigate(NavRoute.PairingProgress.route) {
+                            popUpTo(NavRoute.ServerUrl.route)
+                        }
+                    },
                     onBack = { navController.popBackStack() },
                 )
             }
@@ -275,8 +281,10 @@ private fun SynctuaryNavHost() {
                                 previewVm.setImageList(imagePaths)
                                 navController.navigate(NavRoute.ImagePreview.createRoute(fullPath))
                             }
-                            mime.startsWith("video/") || mime.startsWith("audio/") ->
+                            mime.startsWith("video/") || mime.startsWith("audio/") -> {
+                                videoPlayerVm.currentShareId = fileBrowserVm.currentShare.value?.id
                                 navController.navigate(NavRoute.MediaPreview.createRoute(fullPath))
+                            }
                         }
                     },
                     onAddToFavorites = { entry, path ->

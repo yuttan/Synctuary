@@ -110,7 +110,7 @@ class FileBrowserViewModel @JvmOverloads constructor(
                 type = "share",
                 size = null,
                 modified_at = 0L,
-                mime_type = null,
+                mime_type = s.host_path,
                 sha256 = s.id,
             )
         }
@@ -174,7 +174,7 @@ class FileBrowserViewModel @JvmOverloads constructor(
         val recursive = entry.type == "dir"
         viewModelScope.launch {
             try {
-                repo.deleteFile(path, recursive)
+                repo.deleteFile(path, recursive, shareId = _currentShare.value?.id)
                 loadDirectory(_uiState.value.currentPath)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Delete failed: ${e.message}") }
@@ -187,7 +187,7 @@ class FileBrowserViewModel @JvmOverloads constructor(
         val to = buildEntryPath(newName)
         viewModelScope.launch {
             try {
-                repo.moveFile(from, to)
+                repo.moveFile(from, to, shareId = _currentShare.value?.id)
                 loadDirectory(_uiState.value.currentPath)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Rename failed: ${e.message}") }
@@ -226,7 +226,7 @@ class FileBrowserViewModel @JvmOverloads constructor(
         val to = if (destinationDir == "/") "/${entry.name}" else "$destinationDir/${entry.name}"
         viewModelScope.launch {
             try {
-                repo.moveFile(from, to)
+                repo.moveFile(from, to, shareId = _currentShare.value?.id)
                 loadDirectory(_uiState.value.currentPath)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Move failed: ${e.message}") }
@@ -235,7 +235,7 @@ class FileBrowserViewModel @JvmOverloads constructor(
     }
 
     suspend fun listDirectory(path: String): List<FileEntry> {
-        return repo.listFiles(path)
+        return repo.listFiles(path, _currentShare.value?.id)
     }
 
     /** Download to the user-configured SAF folder, falling back to
@@ -259,21 +259,29 @@ class FileBrowserViewModel @JvmOverloads constructor(
                     val safeName = deduplicateSafName(treeDoc, name)
                     val destDoc = treeDoc?.createFile(mime, safeName)
                         ?: throw IllegalStateException("Cannot create file in download folder")
-                    repo.downloadFileToUri(remotePath, app.contentResolver, destDoc.uri) { received, total ->
-                        _uiState.update {
-                            it.copy(downloadState = TransferState.Running(name, received, total))
-                        }
-                    }
+                    repo.downloadFileToUri(
+                        remotePath, app.contentResolver, destDoc.uri,
+                        onProgress = { received, total ->
+                            _uiState.update {
+                                it.copy(downloadState = TransferState.Running(name, received, total))
+                            }
+                        },
+                        shareId = _currentShare.value?.id,
+                    )
                     destLabel = destDoc.uri.toString()
                 } else {
                     // Fallback: app-private external files dir.
                     val destDir = app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS) ?: app.filesDir
                     val destFile = deduplicateLocalFile(destDir, name)
-                    repo.downloadFile(remotePath, destFile) { received, total ->
-                        _uiState.update {
-                            it.copy(downloadState = TransferState.Running(name, received, total))
-                        }
-                    }
+                    repo.downloadFile(
+                        remotePath, destFile,
+                        onProgress = { received, total ->
+                            _uiState.update {
+                                it.copy(downloadState = TransferState.Running(name, received, total))
+                            }
+                        },
+                        shareId = _currentShare.value?.id,
+                    )
                     destLabel = destFile.absolutePath
                 }
                 _uiState.update {
@@ -296,11 +304,15 @@ class FileBrowserViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(downloadState = TransferState.Running(name, 0L, entry.size)) }
         viewModelScope.launch {
             try {
-                repo.downloadFileToUri(remotePath, app.contentResolver, destUri) { received, total ->
-                    _uiState.update {
-                        it.copy(downloadState = TransferState.Running(name, received, total))
-                    }
-                }
+                repo.downloadFileToUri(
+                    remotePath, app.contentResolver, destUri,
+                    onProgress = { received, total ->
+                        _uiState.update {
+                            it.copy(downloadState = TransferState.Running(name, received, total))
+                        }
+                    },
+                    shareId = _currentShare.value?.id,
+                )
                 _uiState.update {
                     it.copy(downloadState = TransferState.Done(name, destUri.toString()))
                 }
@@ -322,11 +334,15 @@ class FileBrowserViewModel @JvmOverloads constructor(
         _uiState.update { it.copy(uploadState = TransferState.Running(fileName, 0L, null)) }
         viewModelScope.launch {
             try {
-                repo.uploadFile(app.contentResolver, uri, remotePath) { uploaded, total ->
-                    _uiState.update {
-                        it.copy(uploadState = TransferState.Running(fileName, uploaded, total))
-                    }
-                }
+                repo.uploadFile(
+                    app.contentResolver, uri, remotePath,
+                    onProgress = { uploaded, total ->
+                        _uiState.update {
+                            it.copy(uploadState = TransferState.Running(fileName, uploaded, total))
+                        }
+                    },
+                    shareId = _currentShare.value?.id,
+                )
                 _uiState.update {
                     it.copy(uploadState = TransferState.Done(fileName, remotePath))
                 }

@@ -186,4 +186,9 @@ type FileStorage interface {
 	// the content handler (for Content-Length) and by file-exists
 	// conflict responses.
 	Stat(ctx context.Context, path string) (*FileMeta, error)
+
+	// Resolve maps a user-facing path to the absolute filesystem
+	// path. Used by the thumbnail service to pass file paths to
+	// external tools (e.g. ffmpeg for video thumbnails).
+	Resolve(ctx context.Context, path string) (string, error)
 }

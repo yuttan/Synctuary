@@ -40,7 +40,11 @@ fun PairingProgressScreen(
     val state by viewModel.uiState.collectAsState()
 
     LaunchedEffect(Unit) {
-        viewModel.startPairing()
+        if (viewModel.hasQrMasterKey()) {
+            viewModel.startQrPairing()
+        } else {
+            viewModel.startPairing()
+        }
     }
 
     Scaffold { padding ->

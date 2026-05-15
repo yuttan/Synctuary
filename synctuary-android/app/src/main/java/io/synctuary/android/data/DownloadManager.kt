@@ -15,8 +15,9 @@ internal class DownloadManager(private val api: SynctuaryApi) {
         remotePath: String,
         destFile: File,
         onProgress: (received: Long, total: Long?) -> Unit,
+        shareId: String? = null,
     ): File = withContext(Dispatchers.IO) {
-        val response = api.filesContent(remotePath)
+        val response = api.filesContent(remotePath, share = shareId)
         if (!response.isSuccessful) {
             throw FileOperationException("download failed: HTTP ${response.code()}")
         }
@@ -46,8 +47,9 @@ internal class DownloadManager(private val api: SynctuaryApi) {
         resolver: ContentResolver,
         destUri: Uri,
         onProgress: (received: Long, total: Long?) -> Unit,
+        shareId: String? = null,
     ): Uri = withContext(Dispatchers.IO) {
-        val response = api.filesContent(remotePath)
+        val response = api.filesContent(remotePath, share = shareId)
         if (!response.isSuccessful) {
             throw FileOperationException("download failed: HTTP ${response.code()}")
         }

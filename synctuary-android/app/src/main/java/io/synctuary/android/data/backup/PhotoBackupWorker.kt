@@ -38,7 +38,8 @@ class PhotoBackupWorker(
                     photo.uri,
                     "$remotePath/${photo.displayName}",
                     overwrite = false,
-                ) { _, _ -> }
+                    onProgress = { _, _ -> },
+                )
                 if (photo.dateAdded > latestTimestamp) {
                     latestTimestamp = photo.dateAdded
                 }

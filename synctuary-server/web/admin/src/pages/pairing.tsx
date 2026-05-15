@@ -5,7 +5,7 @@ import { showToast } from '../components/toast'
 
 export function Pairing() {
   const [info, setInfo] = useState<PairingInfo | null>(null)
-  const [selectedUrl, setSelectedUrl] = useState('')
+  const [selectedIdx, setSelectedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const qrRef = useRef<HTMLDivElement>(null)
 
@@ -13,16 +13,19 @@ export function Pairing() {
     api.pairingInfo()
       .then(data => {
         setInfo(data)
-        setSelectedUrl(data.url || '')
+        setSelectedIdx(0)
       })
       .catch(() => showToast('Failed to load pairing info', 'error'))
       .finally(() => setLoading(false))
   }, [])
 
+  const selectedPairingUri = info?.pairing_uris?.[selectedIdx] || ''
+  const selectedUrl = info?.urls?.[selectedIdx] || ''
+
   useEffect(() => {
-    if (!qrRef.current || !selectedUrl) return
+    if (!qrRef.current || !selectedPairingUri) return
     const qr = qrcode(0, 'M')
-    qr.addData(selectedUrl)
+    qr.addData(selectedPairingUri)
     qr.make()
     qrRef.current.innerHTML = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true })
     const svg = qrRef.current.querySelector('svg')
@@ -32,7 +35,7 @@ export function Pairing() {
       svg.style.maxWidth = '320px'
       svg.style.maxHeight = '320px'
     }
-  }, [selectedUrl])
+  }, [selectedPairingUri])
 
   if (loading) {
     return (
@@ -69,7 +72,7 @@ export function Pairing() {
             style={{ width: '320px', height: '320px' }}
           />
           <div class="text-center">
-            <p class="text-sm text-gray-500 mb-1">Server URL encoded in QR:</p>
+            <p class="text-sm text-gray-500 mb-1">Server address:</p>
             <p class="text-brand-400 font-mono text-sm break-all">{selectedUrl}</p>
           </div>
         </div>
@@ -86,12 +89,12 @@ export function Pairing() {
                 Multiple network interfaces detected. Select the one your device can reach.
               </p>
               <div class="space-y-2">
-                {info.urls.map((u: string) => (
+                {info.urls.map((u: string, idx: number) => (
                   <button
                     key={u}
-                    onClick={() => setSelectedUrl(u)}
+                    onClick={() => setSelectedIdx(idx)}
                     class={`w-full text-left px-4 py-3 rounded-lg font-mono text-sm transition-colors ${
-                      u === selectedUrl
+                      idx === selectedIdx
                         ? 'bg-brand-600/20 text-brand-400 border border-brand-600/40'
                         : 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600'
                     }`}
@@ -123,11 +126,7 @@ export function Pairing() {
               </li>
               <li class="flex gap-3">
                 <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600/20 text-brand-400 text-xs font-bold flex items-center justify-center">4</span>
-                <span>Enter the 24-word recovery phrase shown during server setup</span>
-              </li>
-              <li class="flex gap-3">
-                <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600/20 text-brand-400 text-xs font-bold flex items-center justify-center">5</span>
-                <span>Your device will register and appear in the <strong class="text-gray-300">Devices</strong> tab</span>
+                <span>Pairing completes automatically — your device will appear in the <strong class="text-gray-300">Devices</strong> tab</span>
               </li>
             </ol>
           </div>
