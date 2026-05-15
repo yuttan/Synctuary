@@ -28,6 +28,9 @@ sealed class NavRoute(val route: String) {
             "favorites/detail?id=${android.net.Uri.encode(id)}&name=${android.net.Uri.encode(name)}"
     }
 
+    // Connection picker (shown when server is unreachable)
+    data object ConnectionPicker : NavRoute("connection_picker")
+
     // QR scanner (onboarding)
     data object QrScanner : NavRoute("onboarding/qr_scanner")
 

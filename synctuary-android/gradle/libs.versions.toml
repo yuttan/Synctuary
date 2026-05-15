@@ -35,6 +35,7 @@ coroutines           = "1.9.0"
 room                 = "2.6.1"
 datastore            = "1.1.1"
 documentfile         = "1.0.1"
+work                 = "2.9.1"
 
 # Crypto / security
 biometric            = "1.2.0-alpha05"
@@ -97,6 +98,7 @@ room-compiler                    = { module = "androidx.room:room-compiler",    
 # DataStore (preferences-style key/value)
 datastore-preferences            = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 androidx-documentfile            = { module = "androidx.documentfile:documentfile",       version.ref = "documentfile" }
+androidx-work-runtime            = { module = "androidx.work:work-runtime-ktx",          version.ref = "work" }
 
 # Camera / barcode scanning
 camerax-camera2                  = { module = "androidx.camera:camera-camera2",        version.ref = "camerax" }

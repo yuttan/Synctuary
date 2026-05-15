@@ -54,8 +54,10 @@ class SecretStore private constructor(private val prefs: SharedPreferences) {
 
     fun loadPairedDevice(): PairedDevice? {
         if (!isPaired()) return null
+        val homeUrl = prefs.getString(K_SERVER_URL, "").orEmpty()
+        val activeUrl = getActiveUrl() ?: homeUrl
         return PairedDevice(
-            serverUrl = prefs.getString(K_SERVER_URL, "").orEmpty(),
+            serverUrl = activeUrl,
             serverId = B64Url.decode(prefs.getString(K_SERVER_ID, "").orEmpty()),
             serverFingerprint = prefs.getString(K_SERVER_FP, null)?.let { B64Url.decode(it) },
             deviceId = B64Url.decode(prefs.getString(K_DEVICE_ID, "").orEmpty()),
@@ -63,6 +65,37 @@ class SecretStore private constructor(private val prefs: SharedPreferences) {
             devicePriv = B64Url.decode(prefs.getString(K_DEVICE_PRIV, "").orEmpty()),
             deviceToken = B64Url.decode(prefs.getString(K_DEVICE_TOKEN, "").orEmpty()),
         )
+    }
+
+    fun loadHomeUrl(): String = prefs.getString(K_SERVER_URL, "").orEmpty()
+
+    fun saveRemoteUrl(url: String?) {
+        prefs.edit().apply {
+            if (url != null) putString(K_REMOTE_URL, url)
+            else remove(K_REMOTE_URL)
+        }.apply()
+    }
+
+    fun loadRemoteUrl(): String? = prefs.getString(K_REMOTE_URL, null)
+
+    fun updateServerUrl(url: String) {
+        prefs.edit().putString(K_SERVER_URL, url).apply()
+    }
+
+    fun setActiveMode(mode: String) {
+        prefs.edit().putString(K_ACTIVE_MODE, mode).apply()
+    }
+
+    fun getActiveMode(): String = prefs.getString(K_ACTIVE_MODE, MODE_HOME) ?: MODE_HOME
+
+    fun getActiveUrl(): String? {
+        val homeUrl = prefs.getString(K_SERVER_URL, null)
+        val mode = getActiveMode()
+        return if (mode == MODE_REMOTE) {
+            loadRemoteUrl() ?: homeUrl
+        } else {
+            homeUrl
+        }
     }
 
     /** Wipe everything. Used when the user explicitly un-pairs (mockup
@@ -81,6 +114,10 @@ class SecretStore private constructor(private val prefs: SharedPreferences) {
         private const val K_DEVICE_PUB = "device_pub"
         private const val K_DEVICE_PRIV = "device_priv"
         private const val K_DEVICE_TOKEN = "device_token"
+        private const val K_REMOTE_URL = "remote_url"
+        private const val K_ACTIVE_MODE = "active_mode"
+        const val MODE_HOME = "home"
+        const val MODE_REMOTE = "remote"
 
         /** Build the singleton-ish store for an Application context.
          *  EncryptedSharedPreferences is internally cached, so calling

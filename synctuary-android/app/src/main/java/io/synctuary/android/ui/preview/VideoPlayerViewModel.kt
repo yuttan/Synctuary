@@ -66,7 +66,27 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private var currentPath: String = ""
 
+    /**
+     * Return the existing player if it's already playing this path,
+     * otherwise create a new one. This prevents player recreation on
+     * config changes (orientation, fullscreen toggle).
+     */
+    fun getOrBuildPlayer(path: String, contentUrl: String): ExoPlayer {
+        val existing = exoPlayer
+        if (existing != null && currentPath == path) {
+            return existing
+        }
+        return buildPlayer(path, contentUrl)
+    }
+
     fun buildPlayer(path: String, contentUrl: String): ExoPlayer {
+        // Release previous player if switching paths.
+        exoPlayer?.let { old ->
+            if (old.currentPosition > 30_000) {
+                resumePositions[currentPath] = old.currentPosition
+            }
+            old.release()
+        }
         currentPath = path
         val httpFactory = OkHttpDataSource.Factory(authenticatedClient)
         val player = ExoPlayer.Builder(getApplication())
@@ -249,15 +269,21 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         return if (fps > 1f) (1000f / fps).toLong() else 33L
     }
 
-    public override fun onCleared() {
-        // Save final position before release
+    /** Release the player when leaving the media screen. Saves resume position. */
+    fun releasePlayer() {
         exoPlayer?.let { p ->
             if (p.currentPosition > 30_000) {
                 resumePositions[currentPath] = p.currentPosition
             }
+            p.release()
         }
-        exoPlayer?.release()
         exoPlayer = null
+        _playerState.value = PlayerState()
+        clearLoop()
+    }
+
+    public override fun onCleared() {
+        releasePlayer()
     }
 
     private val authenticatedClient by lazy {

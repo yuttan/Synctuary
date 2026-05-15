@@ -1,8 +1,15 @@
 package io.synctuary.android
 
+import android.content.pm.ActivityInfo
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -10,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +60,7 @@ import io.synctuary.android.ui.preview.ImagePreviewScreen
 import io.synctuary.android.ui.preview.MediaPreviewScreen
 import io.synctuary.android.ui.preview.PreviewViewModel
 import io.synctuary.android.ui.preview.VideoPlayerViewModel
+import io.synctuary.android.ui.settings.ConnectionPickerScreen
 import io.synctuary.android.ui.settings.SettingsScreen
 import io.synctuary.android.ui.settings.SettingsViewModel
 import io.synctuary.android.ui.theme.SynctuaryTheme
@@ -108,18 +117,68 @@ private fun SynctuaryNavHost() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val startRoute = if (onboardingVm.isPaired()) {
+    val isPaired = onboardingVm.isPaired()
+    val startRoute = if (isPaired) {
         NavRoute.TabFiles.route
     } else {
         NavRoute.ServerUrl.route
     }
 
+    val connectionState by onboardingVm.connectionState.collectAsState()
+
+    // On startup, check server reachability if paired
+    LaunchedEffect(isPaired) {
+        if (isPaired) {
+            onboardingVm.checkConnection()
+        }
+    }
+
+    // Navigate to ConnectionPicker when server is unreachable
+    LaunchedEffect(connectionState.reachable) {
+        if (connectionState.reachable == false) {
+            val current = navController.currentDestination?.route
+            if (current != NavRoute.ConnectionPicker.route) {
+                navController.navigate(NavRoute.ConnectionPicker.route) {
+                    launchSingleTop = true
+                }
+            }
+        } else if (connectionState.reachable == true) {
+            val current = navController.currentDestination?.route
+            if (current == NavRoute.ConnectionPicker.route) {
+                navController.popBackStack()
+            }
+            // Refresh all VMs to use the (possibly changed) active URL
+            fileBrowserVm.resetConnection()
+            favoritesVm.resetConnection()
+            devicesVm.resetConnection()
+            settingsVm.refreshState()
+        }
+    }
+
     val settingsState by settingsVm.uiState.collectAsState()
     val leftHandMode = settingsState.leftHandMode
+
+    // When active mode changes from Settings, refresh all repositories
+    val activeMode = settingsState.activeMode
+    LaunchedEffect(activeMode) {
+        fileBrowserVm.resetConnection()
+        favoritesVm.resetConnection()
+        devicesVm.resetConnection()
+    }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val showBottomNav = currentRoute in tabRoutes
+
+    // Prevent the system back gesture from sending the app to background.
+    // On tab screens the gesture is silently consumed; on detail screens
+    // (preview, favorite detail, etc.) it pops the nav stack instead.
+    BackHandler(enabled = true) {
+        if (currentRoute != null && currentRoute !in tabRoutes) {
+            navController.popBackStack()
+        }
+        // On tab screens: do nothing — swallow the gesture.
+    }
 
     Scaffold(
         bottomBar = {
@@ -181,19 +240,41 @@ private fun SynctuaryNavHost() {
                 )
             }
 
+            // Connection picker (server unreachable)
+            composable(NavRoute.ConnectionPicker.route) {
+                ConnectionPickerScreen(
+                    homeUrl = onboardingVm.getHomeUrl(),
+                    remoteUrl = onboardingVm.getRemoteUrl(),
+                    activeMode = onboardingVm.getActiveMode(),
+                    connecting = connectionState.checking,
+                    error = connectionState.error,
+                    onSelectHome = { onboardingVm.switchToHome() },
+                    onSelectRemote = { url -> onboardingVm.switchToRemote(url) },
+                    onRetry = { onboardingVm.checkConnection() },
+                )
+            }
+
             // Main tabs
             composable(NavRoute.TabFiles.route) {
                 FilesTabScreen(
                     fileBrowserVm = fileBrowserVm,
                     localFilesVm = localFilesVm,
+                    previewVm = previewVm,
                     leftHandMode = leftHandMode,
                     onPreview = { entry ->
                         val current = fileBrowserVm.uiState.value.currentPath
                         val fullPath = if (current == "/") "/${entry.name}" else "$current/${entry.name}"
                         val mime = entry.mime_type ?: ""
                         when {
-                            mime.startsWith("image/") ->
+                            mime.startsWith("image/") -> {
+                                val imageEntries = fileBrowserVm.uiState.value.filteredEntries
+                                    .filter { (it.mime_type ?: "").startsWith("image/") }
+                                val imagePaths = imageEntries.map { e ->
+                                    if (current == "/") "/${e.name}" else "$current/${e.name}"
+                                }
+                                previewVm.setImageList(imagePaths)
                                 navController.navigate(NavRoute.ImagePreview.createRoute(fullPath))
+                            }
                             mime.startsWith("video/") || mime.startsWith("audio/") ->
                                 navController.navigate(NavRoute.MediaPreview.createRoute(fullPath))
                         }
@@ -255,6 +336,19 @@ private fun SynctuaryNavHost() {
                     listName = name,
                     viewModel = favoritesVm,
                     onBack = { navController.popBackStack() },
+                    onItemTap = { path ->
+                        // Navigate to the file browser at the given path.
+                        // For folders, browse into it; for files, browse the parent.
+                        val fileName = path.substringAfterLast('/')
+                        val isLikelyFolder = '.' !in fileName
+                        val targetDir = if (isLikelyFolder) path
+                                        else path.substringBeforeLast('/', "/")
+                        fileBrowserVm.loadDirectory(targetDir)
+                        navController.navigate(NavRoute.TabFiles.route) {
+                            popUpTo(NavRoute.TabFiles.route) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
                 )
             }
 
@@ -262,6 +356,10 @@ private fun SynctuaryNavHost() {
             composable(
                 route = NavRoute.ImagePreview.route,
                 arguments = listOf(navArgument("path") { type = NavType.StringType }),
+                enterTransition = { fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 4 } },
+                exitTransition = { fadeOut(tween(200)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition = { fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 4 } },
             ) { backStackEntry ->
                 val path = backStackEntry.arguments?.getString("path") ?: return@composable
                 ImagePreviewScreen(
@@ -274,6 +372,10 @@ private fun SynctuaryNavHost() {
             composable(
                 route = NavRoute.MediaPreview.route,
                 arguments = listOf(navArgument("path") { type = NavType.StringType }),
+                enterTransition = { fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 4 } },
+                exitTransition = { fadeOut(tween(200)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition = { fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 4 } },
             ) { backStackEntry ->
                 val path = backStackEntry.arguments?.getString("path") ?: return@composable
                 MediaPreviewScreen(
@@ -281,18 +383,31 @@ private fun SynctuaryNavHost() {
                     viewModel = previewVm,
                     videoPlayerVm = videoPlayerVm,
                     onBack = { navController.popBackStack() },
-                    onFullscreenChanged = { fullscreen ->
-                        activity?.window?.let { window ->
+                    onFullscreenChanged = { fullscreen, videoWidth, videoHeight ->
+                        activity?.let { act ->
+                            val window = act.window
                             val insetsController = androidx.core.view.WindowCompat.getInsetsController(
                                 window, window.decorView
                             )
                             if (fullscreen) {
+                                // Choose orientation based on video aspect ratio.
+                                // Portrait videos get portrait fullscreen; landscape videos
+                                // get landscape fullscreen. When dimensions are unknown,
+                                // default to landscape (most common for video content).
+                                act.requestedOrientation = if (videoHeight > videoWidth && videoWidth > 0) {
+                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                                } else {
+                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                }
                                 insetsController.hide(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
                                 insetsController.systemBarsBehavior =
                                     androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                             } else {
+                                // Restore full-sensor rotation so the device orientation
+                                // takes over (respects the user's rotation lock setting).
+                                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                                 insetsController.show(
                                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                                 )
@@ -321,7 +436,7 @@ private fun SynctuaryNavHost() {
             filePath = path,
             secretStore = secretStore,
             onDismiss = { favDialogFile = null },
-            onDone = { favDialogFile = null },
+            onDone = { favDialogFile = null; favoritesVm.loadLists() },
         )
     }
 }

@@ -20,7 +20,7 @@ android {
         minSdk                    = 26          // BiometricPrompt needs API 28; 26 floor for tonal palette.
         targetSdk                 = 34
         versionCode               = 1
-        versionName               = "0.4.0"     // tracks PROTOCOL phase (server is at v0.4 / PROTOCOL 0.2.3)
+        versionName               = "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -36,6 +36,14 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             isDebuggable        = true
+        }
+    }
+
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+            output.outputFileName = "synctuary-${variant.versionName}-${variant.buildType.name}.apk"
         }
     }
 
@@ -102,6 +110,9 @@ dependencies {
 
     // DocumentFile: SAF tree-URI traversal for the local file browser
     implementation(libs.androidx.documentfile)
+
+    // WorkManager: periodic photo auto-backup
+    implementation(libs.androidx.work.runtime)
 
     // Camera + barcode scanning (QR code pairing)
     implementation(libs.bundles.camerax)

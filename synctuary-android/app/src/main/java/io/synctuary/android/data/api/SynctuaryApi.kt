@@ -14,6 +14,7 @@ import io.synctuary.android.data.api.dto.NonceDto
 import io.synctuary.android.data.api.dto.PatchFavoriteRequest
 import io.synctuary.android.data.api.dto.RegisterRequest
 import io.synctuary.android.data.api.dto.RegisterResponse
+import io.synctuary.android.data.api.dto.SharesResponse
 import io.synctuary.android.data.api.dto.UploadInitRequest
 import io.synctuary.android.data.api.dto.UploadInitResponse
 import io.synctuary.android.data.api.dto.UploadProgressResponse
@@ -49,6 +50,7 @@ interface SynctuaryApi {
     suspend fun filesList(
         @Query("path") path: String,
         @Query("hash") hash: Boolean = false,
+        @Query("share") share: String? = null,
     ): FileListResponse
 
     @GET("api/v1/files/content")
@@ -81,6 +83,11 @@ interface SynctuaryApi {
 
     @DELETE("api/v1/files/upload/{id}")
     suspend fun uploadAbort(@Path("id") uploadId: String): Response<Unit>
+
+    // ── Shares (§10) — require Bearer auth ───────────────────────────
+
+    @GET("api/v1/shares")
+    suspend fun sharesList(): SharesResponse
 
     // ── Devices (§7) — require Bearer auth ──────────────────────────
 

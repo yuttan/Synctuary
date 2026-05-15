@@ -4,7 +4,7 @@
 > not to break" briefing for any new Claude Code session picking up the
 > Synctuary project. Update it in lock-step with the architecture.
 
-**Last updated**: 2026-05-13 (after remote access WireGuard tunnel PR #28/#29/#30)
+**Last updated**: 2026-05-15 (after v0.7 — thumbnails, photo backup, shares UI PR #33)
 **Repo**: https://github.com/yuttan/Synctuary (public, Apache-2.0)
 
 ---
@@ -69,12 +69,13 @@ Synctuary/
 │       │   ├── pairing.go, file_service.go, device_service.go, favorite_service.go
 │       │   ├── share_service.go       ← multi-drive share CRUD
 │       │   ├── pin_service.go         ← per-device quick access pins
+│       │   ├── thumbnail_service.go   ← on-demand JPEG thumbnail generation + cache
 │       │   └── admin_service.go       ← admin auth (bcrypt + session tokens)
 │       ├── adapter/
 │       │   ├── infrastructure/        ← impl: db (SQLite/modernc), fs, crypto, rate, secret, wg
 │       │   └── interface/http/        ← chi router + handlers + middleware
 │       │       └── admin/             ← admin Web UI (Preact/Vite/Tailwind, go:embed)
-│       ├── migrations/                ← goose SQL: 001-006 (init, uploads, favorites, shares, pins, wg_peers)
+│       ├── migrations/                ← goose SQL: 001-007 (init, uploads, favorites, shares, pins, wg_peers, thumbnails)
 │       └── integration/               ← end-to-end tests booting httptest.Server
 │
 └── synctuary-android/                 ← Android client, Apache-2.0
@@ -103,6 +104,7 @@ Synctuary/
             │   │   ├── data/
             │   │   │   ├── api/                     ← Retrofit + Moshi + OkHttp
             │   │   │   ├── secret/SecretStore.kt    ← EncryptedSharedPreferences
+            │   │   │   ├── backup/                  ← PhotoBackupWorker + BackupScheduler (WorkManager)
             │   │   │   ├── PairingRepository.kt     ← §4 orchestration
             │   │   │   ├── FileRepository.kt        ← §6 file ops
             │   │   │   ├── FavoritesRepository.kt   ← §8 favorites
@@ -153,7 +155,7 @@ Synctuary/
 
 13. **Pins / Quick Access** (`PROTOCOL §11`): per-device directory bookmarks within shares. Composite key `(device_id, share_id, path)`. No server-side limit on pin count.
 
-## 4. Local development environment (Windows file-server, 2026-04-30)
+## 4. Local development environment (Windows file-server, 2026-05-14)
 
 Toolchain locations (all portable, no admin):
 
@@ -163,8 +165,8 @@ Toolchain locations (all portable, no admin):
 | golangci-lint v1.59.1 | `C:/Users/FileServer/go/bin/golangci-lint.exe` | Matches CI version |
 | OpenJDK 17 (Microsoft) | `C:/Program Files/Microsoft/jdk-17.0.18.8-hotspot/` | `JAVA_HOME` |
 | Gradle 8.10.2 (portable) | `C:/Users/FileServer/sdk/gradle-8.10.2/` | Bootstrapped wrapper jar from `lib/plugins/gradle-wrapper-main-*.jar` (see §6.3) |
+| Android SDK 34 | `C:/Users/FileServer/sdk/android/` | platform-tools + build-tools 34.0.0 + SDK platform 34 |
 | GitHub CLI | `C:/Program Files/GitHub CLI/gh.exe` | Authenticated as `yuttan` |
-| Android SDK | NOT INSTALLED locally | CI provides it; bare `assembleDebug` won't work without it |
 
 Bash commands run in MINGW64 (git-for-windows). PowerShell available too.
 
@@ -289,6 +291,47 @@ job must install Node.js and run `npm ci && npm run build` in
 `PlaybackParameters(speed, pitch)` requires both values `> 0.0`. Using
 `old?.pitch ?: 0f` triggers an Android lint Range error. Default to `1f`.
 
+### 6.10 JDK 17 Unix domain socket temp path (Android build, 2026-05-14)
+
+JDK 16+ on Windows uses Unix domain sockets for `java.nio.channels.Pipe`.
+When the default temp directory path is long, `UnixDomainSockets.connect0`
+fails with `Invalid argument`, which cascades into Gradle's "Unable to
+establish loopback connection" or "Could not receive a message from the daemon".
+
+Fix: set a short temp path for the JVM. User-level `~/.gradle/gradle.properties`:
+
+```properties
+org.gradle.jvmargs=-Djdk.net.unixdomain.tmpdir=C:/tmp -Djava.io.tmpdir=C:/tmp
+```
+
+Also pass `GRADLE_OPTS="-Djdk.net.unixdomain.tmpdir=C:/tmp -Djava.io.tmpdir=C:/tmp"`
+for the launcher JVM. Additionally, `java.exe` needs a Windows Firewall
+inbound+outbound allow rule (JDK 17 daemon uses TCP loopback for IPC).
+
+### 6.11 Windows shell quoting for Go flag args (Server, 2026-05-14)
+
+On Windows (cmd / PowerShell / MINGW64), the `-config` flag value must be
+double-quoted: `./synctuaryd.exe -config="config.local.yml"`. Without
+quotes the flag parser may not receive the value correctly.
+
+### 6.12 Gradle daemon needs JAVA_TOOL_OPTIONS for Unix domain sockets (Android, 2026-05-14)
+
+`org.gradle.jvmargs` in `gradle.properties` passes `-Djdk.net.unixdomain.tmpdir`
+to the daemon, but Gradle 8.10.2 silently drops it from the daemon command
+line. The daemon then fails with "Unable to establish loopback connection"
+internally (`PipeImpl` → `UnixDomainSockets.connect0`).
+
+Workaround: set `JAVA_TOOL_OPTIONS` which the JVM reads unconditionally:
+
+```sh
+export JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=C:/tmp"
+export GRADLE_OPTS="-Djdk.net.unixdomain.tmpdir=C:/tmp -Djava.io.tmpdir=C:/tmp"
+./gradlew assembleDebug
+```
+
+Both env vars are needed: `GRADLE_OPTS` for the launcher process,
+`JAVA_TOOL_OPTIONS` for the forked daemon and Kotlin compiler processes.
+
 ## 7. Phase status (what's done, what's next)
 
 ### Done (v0.6 = 2026-05-08)
@@ -319,14 +362,24 @@ job must install Node.js and run `npm ci && npm run build` in
 - ✅ Server: remote access Step C — Dockerfile `EXPOSE 51820/udp`, docker-compose.yml UDP port mapping, config.example.yml remote_access section (PR #29, #30)
 - ✅ Documentation: SPEC.md, PROTOCOL.md v0.3.0 (§10 Shares, §11 Pins), deploy/README.md, this file
 
+### Done (v0.7 = 2026-05-15)
+- ✅ Server: on-demand JPEG thumbnail generation — migration 007_thumbnails, cache in SQLite, `disintegration/imaging` Lanczos, max 512px, cache invalidation via source SHA-256 (PR #33)
+- ✅ Server: `GET /api/v1/files/thumbnail?path=&size=` endpoint with Cache-Control (PR #33)
+- ✅ Android: shares-as-root-drives UI — virtual FileEntry with type="share", breadcrumb navigation, Storage icon (PR #33)
+- ✅ Android: thumbnail display in file browser — Coil AsyncImage with authenticated OkHttpClient (PR #33)
+- ✅ Android: photo auto-backup — WorkManager periodic (1h), MediaStore query, Wi-Fi-only constraint, configurable remote path (PR #33)
+- ✅ Android: backup settings UI — enable/disable toggle, Wi-Fi-only switch, destination path in Settings screen (PR #33)
+- ✅ Android: natural sort order (NaturalOrderComparator) for file/folder names (PR #33)
+- ✅ Android: real-device bug fixes — back navigation, seek bar touch, fullscreen orientation, favorites detail crash (PR #33)
+
 ### Next up (priority order)
-1. **Real-device integration testing** — Android APK + running server on the LAN, end-to-end §4 pairing flow verification.
+1. **Real-device integration testing** — continue testing on physical device, verify thumbnail display, backup flow, shares navigation.
 2. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
 3. **iOS client** — deferred until test device is available.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
-- **First production tag** (`v0.6.0`): user pushes `git tag v0.6.0 && git push origin v0.6.0` when comfortable.
+- **Production tags**: user pushes `git tag v0.7.0 && git push origin v0.7.0` when comfortable.
 - **Real-device pair test**: install debug APK on a phone, point at a running server, confirm the §4 flow works end-to-end (matters for sanity-checking the EncryptedSharedPreferences path on a real Keystore).
 
 ## 8. Subagent (サヤ) usage

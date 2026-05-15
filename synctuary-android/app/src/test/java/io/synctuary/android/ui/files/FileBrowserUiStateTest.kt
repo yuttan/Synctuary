@@ -20,16 +20,24 @@ class FileBrowserUiStateTest {
         fileEntry("Photo_2024.png"),
     )
 
+    private val sortedNames = listOf(
+        "backup",          // dir first
+        "document.pdf",    // files sorted by name (natural order)
+        "photo.jpg",
+        "Photo_2024.png",
+        "README.md",
+    )
+
     @Test
     fun `filteredEntries returns all when searchQuery is blank`() {
         val state = FileBrowserUiState(entries = sampleEntries, searchQuery = "")
-        assertEquals(sampleEntries, state.filteredEntries)
+        assertEquals(sortedNames, state.filteredEntries.map { it.name })
     }
 
     @Test
     fun `filteredEntries returns all when searchQuery is whitespace`() {
         val state = FileBrowserUiState(entries = sampleEntries, searchQuery = "   ")
-        assertEquals(sampleEntries, state.filteredEntries)
+        assertEquals(sortedNames, state.filteredEntries.map { it.name })
     }
 
     @Test

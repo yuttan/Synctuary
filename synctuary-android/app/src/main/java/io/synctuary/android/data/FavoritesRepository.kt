@@ -16,14 +16,21 @@ import kotlinx.coroutines.withContext
 class FavoritesRepository(private val secretStore: SecretStore) {
 
     private var api: SynctuaryApi? = null
+    private var cachedUrl: String? = null
 
     private fun authenticatedApi(): SynctuaryApi {
-        api?.let { return it }
         val paired = secretStore.loadPairedDevice()
             ?: throw IllegalStateException("not paired")
+        if (api != null && cachedUrl == paired.serverUrl) return api!!
         val interceptor = AuthInterceptor(secretStore)
+        cachedUrl = paired.serverUrl
         return NetworkModule.create(paired.serverUrl, paired.serverFingerprint, interceptor)
             .also { api = it }
+    }
+
+    fun resetApiCache() {
+        api = null
+        cachedUrl = null
     }
 
     suspend fun listAll(includeHidden: Boolean = false): List<FavoriteListDto> =

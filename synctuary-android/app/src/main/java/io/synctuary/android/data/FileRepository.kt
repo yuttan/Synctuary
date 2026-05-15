@@ -7,6 +7,7 @@ import io.synctuary.android.data.api.NetworkModule
 import io.synctuary.android.data.api.SynctuaryApi
 import io.synctuary.android.data.api.dto.FileEntry
 import io.synctuary.android.data.api.dto.MoveRequest
+import io.synctuary.android.data.api.dto.ShareEntry
 import io.synctuary.android.data.secret.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,18 +16,29 @@ import java.io.File
 class FileRepository(private val secretStore: SecretStore) {
 
     private var api: SynctuaryApi? = null
+    private var cachedUrl: String? = null
 
     private fun authenticatedApi(): SynctuaryApi {
-        api?.let { return it }
         val paired = secretStore.loadPairedDevice()
             ?: throw IllegalStateException("not paired")
+        if (api != null && cachedUrl == paired.serverUrl) return api!!
         val fp = paired.serverFingerprint
         val interceptor = AuthInterceptor(secretStore)
+        cachedUrl = paired.serverUrl
         return NetworkModule.create(paired.serverUrl, fp, interceptor).also { api = it }
     }
 
-    suspend fun listFiles(path: String): List<FileEntry> = withContext(Dispatchers.IO) {
-        authenticatedApi().filesList(path).entries
+    fun resetApiCache() {
+        api = null
+        cachedUrl = null
+    }
+
+    suspend fun listFiles(path: String, shareId: String? = null): List<FileEntry> = withContext(Dispatchers.IO) {
+        authenticatedApi().filesList(path, share = shareId).entries
+    }
+
+    suspend fun listShares(): List<ShareEntry> = withContext(Dispatchers.IO) {
+        authenticatedApi().sharesList().shares
     }
 
     suspend fun deleteFile(path: String, recursive: Boolean = false) = withContext(Dispatchers.IO) {

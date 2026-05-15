@@ -14,7 +14,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,6 +49,7 @@ fun FavoriteListDetailScreen(
     listName: String,
     viewModel: FavoritesViewModel,
     onBack: () -> Unit,
+    onItemTap: (path: String) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -53,15 +57,18 @@ fun FavoriteListDetailScreen(
         viewModel.loadListDetail(listId)
     }
 
+    // Clean up selected list when this composable leaves composition,
+    // rather than in the onClick handler where it races with popBackStack.
+    DisposableEffect(Unit) {
+        onDispose { viewModel.clearSelectedList() }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(listName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        viewModel.clearSelectedList()
-                        onBack()
-                    }) {
+                    IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -76,13 +83,14 @@ fun FavoriteListDetailScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            val detail = state.selectedList
             when {
                 state.selectedListLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
-                state.selectedList == null -> {
+                detail == null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             "Failed to load list",
@@ -91,7 +99,7 @@ fun FavoriteListDetailScreen(
                         )
                     }
                 }
-                state.selectedList!!.items.isEmpty() -> {
+                detail.items.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
@@ -109,9 +117,10 @@ fun FavoriteListDetailScreen(
                 }
                 else -> {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(state.selectedList!!.items, key = { it.path }) { item ->
+                        items(detail.items, key = { it.path }) { item ->
                             FavoriteItemRow(
                                 item = item,
+                                onTap = { onItemTap(item.path) },
                                 onRemove = {
                                     viewModel.removeItemFromList(listId, item.path)
                                 },
@@ -128,23 +137,28 @@ fun FavoriteListDetailScreen(
 @Composable
 private fun FavoriteItemRow(
     item: FavoriteItemDto,
+    onTap: () -> Unit,
     onRemove: () -> Unit,
 ) {
     val fileName = item.path.substringAfterLast('/')
     val dirPath = item.path.substringBeforeLast('/', "/")
     val addedDate = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         .format(Date(item.added_at * 1000))
+    // Guess if the item is a directory by checking for a file extension.
+    val isLikelyFolder = '.' !in fileName
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onTap)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            Icons.Filled.InsertDriveFile,
+            if (isLikelyFolder) Icons.Filled.Folder else Icons.Filled.InsertDriveFile,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = if (isLikelyFolder) MaterialTheme.colorScheme.primary
+                   else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(24.dp),
         )
         Spacer(Modifier.width(14.dp))

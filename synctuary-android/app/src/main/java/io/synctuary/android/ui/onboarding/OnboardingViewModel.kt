@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.synctuary.android.data.PairedDeviceSummary
 import io.synctuary.android.data.PairingRepository
+import io.synctuary.android.data.api.AuthInterceptor
+import io.synctuary.android.data.api.NetworkModule
 import io.synctuary.android.data.secret.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +23,48 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
     fun isPaired(): Boolean = secretStore.isPaired()
+
+    fun getHomeUrl(): String = secretStore.loadHomeUrl()
+    fun getRemoteUrl(): String = secretStore.loadRemoteUrl() ?: ""
+    fun getActiveMode(): String = secretStore.getActiveMode()
+
+    private val _connectionState = MutableStateFlow(ConnectionCheckState())
+    val connectionState: StateFlow<ConnectionCheckState> = _connectionState.asStateFlow()
+
+    fun checkConnection() {
+        val paired = secretStore.loadPairedDevice() ?: return
+        _connectionState.update { it.copy(checking = true, reachable = null, error = null) }
+        viewModelScope.launch {
+            try {
+                val api = NetworkModule.create(
+                    baseUrl = paired.serverUrl,
+                    fingerprint = paired.serverFingerprint,
+                    authInterceptor = AuthInterceptor(secretStore),
+                )
+                api.info()
+                _connectionState.update { it.copy(checking = false, reachable = true, error = null) }
+            } catch (e: Exception) {
+                _connectionState.update {
+                    it.copy(checking = false, reachable = false, error = e.message ?: "Connection failed")
+                }
+            }
+        }
+    }
+
+    fun switchToHome() {
+        secretStore.setActiveMode(SecretStore.MODE_HOME)
+        checkConnection()
+    }
+
+    fun switchToRemote(url: String) {
+        secretStore.saveRemoteUrl(url)
+        secretStore.setActiveMode(SecretStore.MODE_REMOTE)
+        checkConnection()
+    }
+
+    fun resetConnectionState() {
+        _connectionState.value = ConnectionCheckState()
+    }
 
     // ── Screen 1: Server URL ────────────────────────────────────────
 
@@ -141,4 +185,10 @@ enum class StepStatus { PENDING, ACTIVE, DONE, ERROR }
 data class PairingStep(
     val label: String,
     val status: StepStatus,
+)
+
+data class ConnectionCheckState(
+    val checking: Boolean = false,
+    val reachable: Boolean? = null,
+    val error: String? = null,
 )

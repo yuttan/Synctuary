@@ -13,6 +13,16 @@ class PreviewViewModel(application: Application) : AndroidViewModel(application)
 
     private val secretStore = SecretStore.create(application)
 
+    var imagePaths: List<String> = emptyList()
+        private set
+
+    fun setImageList(paths: List<String>) {
+        imagePaths = paths
+    }
+
+    fun indexOfImage(path: String): Int =
+        imagePaths.indexOf(path).coerceAtLeast(0)
+
     val authenticatedClient: OkHttpClient by lazy {
         val paired = secretStore.loadPairedDevice()
             ?: throw IllegalStateException("not paired")
@@ -35,5 +45,12 @@ class PreviewViewModel(application: Application) : AndroidViewModel(application)
             ?: throw IllegalStateException("not paired")
         val base = paired.serverUrl.trimEnd('/')
         return "$base/api/v1/files/content?path=${Uri.encode(remotePath)}"
+    }
+
+    fun thumbnailUrl(remotePath: String, size: Int = 256): String {
+        val paired = secretStore.loadPairedDevice()
+            ?: throw IllegalStateException("not paired")
+        val base = paired.serverUrl.trimEnd('/')
+        return "$base/api/v1/files/thumbnail?path=${Uri.encode(remotePath)}&size=$size"
     }
 }
