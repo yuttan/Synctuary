@@ -4,7 +4,7 @@
 > not to break" briefing for any new Claude Code session picking up the
 > Synctuary project. Update it in lock-step with the architecture.
 
-**Last updated**: 2026-05-13 (after remote access WireGuard tunnel PR #28/#29/#30)
+**Last updated**: 2026-05-15 (after v0.7 — thumbnails, photo backup, shares UI PR #33)
 **Repo**: https://github.com/yuttan/Synctuary (public, Apache-2.0)
 
 ---
@@ -69,12 +69,13 @@ Synctuary/
 │       │   ├── pairing.go, file_service.go, device_service.go, favorite_service.go
 │       │   ├── share_service.go       ← multi-drive share CRUD
 │       │   ├── pin_service.go         ← per-device quick access pins
+│       │   ├── thumbnail_service.go   ← on-demand JPEG thumbnail generation + cache
 │       │   └── admin_service.go       ← admin auth (bcrypt + session tokens)
 │       ├── adapter/
 │       │   ├── infrastructure/        ← impl: db (SQLite/modernc), fs, crypto, rate, secret, wg
 │       │   └── interface/http/        ← chi router + handlers + middleware
 │       │       └── admin/             ← admin Web UI (Preact/Vite/Tailwind, go:embed)
-│       ├── migrations/                ← goose SQL: 001-006 (init, uploads, favorites, shares, pins, wg_peers)
+│       ├── migrations/                ← goose SQL: 001-007 (init, uploads, favorites, shares, pins, wg_peers, thumbnails)
 │       └── integration/               ← end-to-end tests booting httptest.Server
 │
 └── synctuary-android/                 ← Android client, Apache-2.0
@@ -103,6 +104,7 @@ Synctuary/
             │   │   ├── data/
             │   │   │   ├── api/                     ← Retrofit + Moshi + OkHttp
             │   │   │   ├── secret/SecretStore.kt    ← EncryptedSharedPreferences
+            │   │   │   ├── backup/                  ← PhotoBackupWorker + BackupScheduler (WorkManager)
             │   │   │   ├── PairingRepository.kt     ← §4 orchestration
             │   │   │   ├── FileRepository.kt        ← §6 file ops
             │   │   │   ├── FavoritesRepository.kt   ← §8 favorites
@@ -360,14 +362,24 @@ Both env vars are needed: `GRADLE_OPTS` for the launcher process,
 - ✅ Server: remote access Step C — Dockerfile `EXPOSE 51820/udp`, docker-compose.yml UDP port mapping, config.example.yml remote_access section (PR #29, #30)
 - ✅ Documentation: SPEC.md, PROTOCOL.md v0.3.0 (§10 Shares, §11 Pins), deploy/README.md, this file
 
+### Done (v0.7 = 2026-05-15)
+- ✅ Server: on-demand JPEG thumbnail generation — migration 007_thumbnails, cache in SQLite, `disintegration/imaging` Lanczos, max 512px, cache invalidation via source SHA-256 (PR #33)
+- ✅ Server: `GET /api/v1/files/thumbnail?path=&size=` endpoint with Cache-Control (PR #33)
+- ✅ Android: shares-as-root-drives UI — virtual FileEntry with type="share", breadcrumb navigation, Storage icon (PR #33)
+- ✅ Android: thumbnail display in file browser — Coil AsyncImage with authenticated OkHttpClient (PR #33)
+- ✅ Android: photo auto-backup — WorkManager periodic (1h), MediaStore query, Wi-Fi-only constraint, configurable remote path (PR #33)
+- ✅ Android: backup settings UI — enable/disable toggle, Wi-Fi-only switch, destination path in Settings screen (PR #33)
+- ✅ Android: natural sort order (NaturalOrderComparator) for file/folder names (PR #33)
+- ✅ Android: real-device bug fixes — back navigation, seek bar touch, fullscreen orientation, favorites detail crash (PR #33)
+
 ### Next up (priority order)
-1. **Real-device integration testing** — Android APK + running server on the LAN, end-to-end §4 pairing flow verification.
+1. **Real-device integration testing** — continue testing on physical device, verify thumbnail display, backup flow, shares navigation.
 2. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
 3. **iOS client** — deferred until test device is available.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
-- **First production tag** (`v0.6.0`): user pushes `git tag v0.6.0 && git push origin v0.6.0` when comfortable.
+- **Production tags**: user pushes `git tag v0.7.0 && git push origin v0.7.0` when comfortable.
 - **Real-device pair test**: install debug APK on a phone, point at a running server, confirm the §4 flow works end-to-end (matters for sanity-checking the EncryptedSharedPreferences path on a real Keystore).
 
 ## 8. Subagent (サヤ) usage
