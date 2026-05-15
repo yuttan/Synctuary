@@ -391,6 +391,10 @@ func main() {
 	defer stop()
 	go gcLoop(ctx, logger, nonceStore, uploads)
 
+	// ── tray icon (Windows only, no-op elsewhere) ────────────────
+	adminURL := buildAdminURL(cfg.Server.Addr, cfg.Server.TLSCertPath != "")
+	startTray(adminURL, stop)
+
 	// ── server ────────────────────────────────────────────────────
 	server := &http.Server{
 		Addr:         cfg.Server.Addr,
@@ -447,6 +451,7 @@ func main() {
 		logger.Error("graceful shutdown failed", "err", err)
 		os.Exit(1)
 	}
+	stopTray()
 	logger.Info("shutdown complete")
 }
 
@@ -650,6 +655,21 @@ func usecaseFile(
 
 func usecaseDevice(repo device.Repository) *usecase.DeviceService {
 	return usecase.NewDeviceService(repo)
+}
+
+func buildAdminURL(addr string, tlsEnabled bool) string {
+	scheme := "http"
+	if tlsEnabled {
+		scheme = "https"
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return scheme + "://localhost/admin/"
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("%s://%s:%s/admin/", scheme, host, port)
 }
 
 // extractPort parses the port from a host:port string, falling back to
