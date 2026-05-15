@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -332,7 +333,46 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                 }
             }
 
-            // Section 7: Danger zone
+            // Section 7: Photo backup
+            item { SectionHeader("Photo backup") }
+            item {
+                OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Auto backup", style = MaterialTheme.typography.bodyLarge)
+                            Switch(
+                                checked = state.backupEnabled,
+                                onCheckedChange = { viewModel.setBackupEnabled(it) },
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Wi-Fi only", style = MaterialTheme.typography.bodyMedium)
+                            Switch(
+                                checked = state.backupWifiOnly,
+                                onCheckedChange = { viewModel.setBackupWifiOnly(it) },
+                                enabled = state.backupEnabled,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Upload to: ${state.backupRemotePath}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            // Section 8: Danger zone
             item { SectionHeader("Danger zone") }
             item {
                 OutlinedCard(

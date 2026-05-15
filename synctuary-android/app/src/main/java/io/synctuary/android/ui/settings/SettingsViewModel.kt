@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.synctuary.android.crypto.B64Url
 import io.synctuary.android.data.DevicesRepository
+import io.synctuary.android.data.backup.BackupScheduler
+import io.synctuary.android.data.backup.PhotoBackupWorker
 import io.synctuary.android.data.secret.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val secretStore = SecretStore.create(application)
     private val repo = DevicesRepository(secretStore)
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val backupPrefs = application.getSharedPreferences(PhotoBackupWorker.PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _uiState = MutableStateFlow(buildState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -39,6 +42,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             leftHandMode = prefs.getBoolean(K_LEFT_HAND, false),
             biometricProtection = prefs.getBoolean(K_BIO_PROTECT, true),
             downloadFolderUri = prefs.getString(K_DOWNLOAD_FOLDER, null),
+            backupEnabled = backupPrefs.getBoolean(PhotoBackupWorker.K_BACKUP_ENABLED, false),
+            backupWifiOnly = backupPrefs.getBoolean(K_BACKUP_WIFI_ONLY, true),
+            backupRemotePath = backupPrefs.getString(PhotoBackupWorker.K_REMOTE_PATH, "/Camera Backup") ?: "/Camera Backup",
         )
     }
 
@@ -118,6 +124,31 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(downloadFolderUri = uriString) }
     }
 
+    fun setBackupEnabled(enabled: Boolean) {
+        backupPrefs.edit().putBoolean(PhotoBackupWorker.K_BACKUP_ENABLED, enabled).apply()
+        _uiState.update { it.copy(backupEnabled = enabled) }
+        val app = getApplication<Application>()
+        if (enabled) {
+            BackupScheduler.schedule(app, _uiState.value.backupWifiOnly)
+        } else {
+            BackupScheduler.cancel(app)
+        }
+    }
+
+    fun setBackupWifiOnly(wifiOnly: Boolean) {
+        backupPrefs.edit().putBoolean(K_BACKUP_WIFI_ONLY, wifiOnly).apply()
+        _uiState.update { it.copy(backupWifiOnly = wifiOnly) }
+        if (_uiState.value.backupEnabled) {
+            BackupScheduler.schedule(getApplication(), wifiOnly)
+        }
+    }
+
+    fun setBackupRemotePath(path: String) {
+        val trimmed = path.trim().ifEmpty { "/Camera Backup" }
+        backupPrefs.edit().putString(PhotoBackupWorker.K_REMOTE_PATH, trimmed).apply()
+        _uiState.update { it.copy(backupRemotePath = trimmed) }
+    }
+
     fun unpair(onComplete: () -> Unit) {
         viewModelScope.launch {
             try {
@@ -136,6 +167,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         private const val K_LEFT_HAND = "left_hand_mode"
         private const val K_BIO_PROTECT = "biometric_protection"
         internal const val K_DOWNLOAD_FOLDER = "download_folder_uri"
+        private const val K_BACKUP_WIFI_ONLY = "backup_wifi_only"
     }
 }
 
@@ -158,5 +190,8 @@ data class SettingsUiState(
     val leftHandMode: Boolean = false,
     val biometricProtection: Boolean = true,
     val downloadFolderUri: String? = null,
+    val backupEnabled: Boolean = false,
+    val backupWifiOnly: Boolean = true,
+    val backupRemotePath: String = "/Camera Backup",
     val error: String? = null,
 )
