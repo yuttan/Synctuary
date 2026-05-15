@@ -259,6 +259,7 @@ private fun SynctuaryNavHost() {
                 FilesTabScreen(
                     fileBrowserVm = fileBrowserVm,
                     localFilesVm = localFilesVm,
+                    previewVm = previewVm,
                     leftHandMode = leftHandMode,
                     onPreview = { entry ->
                         val current = fileBrowserVm.uiState.value.currentPath

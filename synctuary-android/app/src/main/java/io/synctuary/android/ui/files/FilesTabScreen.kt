@@ -17,19 +17,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import io.synctuary.android.data.api.dto.FileEntry
+import io.synctuary.android.ui.preview.PreviewViewModel
 
-/**
- * Wrapper that hosts the "Server / Device" tab row at the top of the
- * Files bottom-nav destination. The selected sub-tab is remembered
- * across configuration changes via [rememberSaveable].
- *
- * - **Server** — remote file browser ([FileBrowserScreen])
- * - **Device** — local download-folder browser ([LocalFilesScreen])
- */
 @Composable
 fun FilesTabScreen(
     fileBrowserVm: FileBrowserViewModel,
     localFilesVm: LocalFilesViewModel,
+    previewVm: PreviewViewModel? = null,
     leftHandMode: Boolean,
     onPreview: (FileEntry) -> Unit,
     onAddToFavorites: ((entry: FileEntry, path: String) -> Unit)?,
@@ -71,6 +65,7 @@ fun FilesTabScreen(
         when (selectedTab) {
             0 -> FileBrowserScreen(
                 viewModel = fileBrowserVm,
+                previewViewModel = previewVm,
                 leftHandMode = leftHandMode,
                 onPreview = onPreview,
                 onAddToFavorites = onAddToFavorites,

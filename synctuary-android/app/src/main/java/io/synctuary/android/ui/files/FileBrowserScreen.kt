@@ -69,9 +69,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.FabPosition
+import androidx.compose.ui.layout.ContentScale
+import coil.ImageLoader
+import coil.compose.AsyncImage
 import io.synctuary.android.data.TransferState
 import io.synctuary.android.data.api.dto.FileEntry
 import io.synctuary.android.data.api.dto.ShareEntry
+import io.synctuary.android.ui.preview.PreviewViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,6 +84,7 @@ import java.util.Locale
 @Composable
 fun FileBrowserScreen(
     viewModel: FileBrowserViewModel,
+    previewViewModel: PreviewViewModel? = null,
     onPreview: (FileEntry) -> Unit = {},
     onAddToFavorites: ((entry: FileEntry, path: String) -> Unit)? = null,
     leftHandMode: Boolean = false,
@@ -292,6 +297,8 @@ fun FileBrowserScreen(
                 else -> {
                     FileList(
                         entries = state.filteredEntries,
+                        currentPath = state.currentPath,
+                        previewViewModel = previewViewModel,
                         onTap = { entry ->
                             when (entry.type) {
                                 "share" -> {
@@ -476,13 +483,23 @@ private fun BreadcrumbBar(
 @Composable
 private fun FileList(
     entries: List<FileEntry>,
+    currentPath: String,
+    previewViewModel: PreviewViewModel?,
     onTap: (FileEntry) -> Unit,
     onLongPress: (FileEntry) -> Unit,
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(entries, key = { it.name }) { entry ->
+            val thumbUrl = remember(entry.name, currentPath) {
+                if (previewViewModel != null && isThumbnailable(entry.mime_type)) {
+                    val remotePath = if (currentPath == "/") "/${entry.name}" else "$currentPath/${entry.name}"
+                    previewViewModel.thumbnailUrl(remotePath)
+                } else null
+            }
             FileRow(
                 entry = entry,
+                thumbnailUrl = thumbUrl,
+                imageLoader = previewViewModel?.imageLoader,
                 onTap = { onTap(entry) },
                 onLongPress = { onLongPress(entry) },
             )
@@ -495,6 +512,8 @@ private fun FileList(
 @Composable
 private fun FileRow(
     entry: FileEntry,
+    thumbnailUrl: String? = null,
+    imageLoader: ImageLoader? = null,
     onTap: () -> Unit,
     onLongPress: () -> Unit,
 ) {
@@ -510,19 +529,31 @@ private fun FileRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(bgColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(24.dp),
+        if (thumbnailUrl != null && imageLoader != null) {
+            AsyncImage(
+                model = thumbnailUrl,
+                imageLoader = imageLoader,
+                contentDescription = entry.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(6.dp)),
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(bgColor),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
         }
 
         Spacer(Modifier.width(16.dp))
@@ -603,5 +634,13 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024 * 1024 -> "%.1f KiB".format(bytes / 1024.0)
     bytes < 1024L * 1024 * 1024 -> "%.1f MiB".format(bytes / (1024.0 * 1024))
     else -> "%.2f GiB".format(bytes / (1024.0 * 1024 * 1024))
+}
+
+private fun isThumbnailable(mime: String?): Boolean {
+    if (mime == null) return false
+    return mime.startsWith("image/jpeg") ||
+        mime.startsWith("image/png") ||
+        mime.startsWith("image/gif") ||
+        mime.startsWith("image/webp")
 }
 
