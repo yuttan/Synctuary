@@ -40,6 +40,13 @@ func stopTray() {
 	systray.Quit()
 }
 
+// generateTrayIcon produces a 64x64 blue circle icon in ICO format.
+//
+// IMPORTANT: On Windows, systray.SetIcon() requires ICO format — NOT raw PNG.
+// The underlying Win32 CreateIconFromResourceEx API only accepts ICO/CUR.
+// Passing raw PNG bytes causes a misleading "The operation completed
+// successfully" error (Win32 error code 0, but the icon load fails).
+// This has bitten us twice — see CLAUDE.md §6.15.
 func generateTrayIcon() []byte {
 	const size = 64
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
@@ -60,7 +67,32 @@ func generateTrayIcon() []byte {
 		}
 	}
 
-	var buf bytes.Buffer
-	_ = png.Encode(&buf, img)
-	return buf.Bytes()
+	// Encode as PNG first
+	var pngBuf bytes.Buffer
+	_ = png.Encode(&pngBuf, img)
+	pngData := pngBuf.Bytes()
+
+	// Wrap in ICO container (PNG-in-ICO, supported since Windows Vista).
+	// ICO format: 6-byte header + 16-byte directory entry + PNG payload.
+	ico := &bytes.Buffer{}
+	// ICONDIR header
+	ico.Write([]byte{0, 0}) // reserved
+	ico.Write([]byte{1, 0}) // type: 1 = ICO
+	ico.Write([]byte{1, 0}) // count: 1 image
+	// ICONDIRENTRY
+	ico.WriteByte(byte(size)) // width (0 means 256)
+	ico.WriteByte(byte(size)) // height
+	ico.WriteByte(0)          // color palette count
+	ico.WriteByte(0)          // reserved
+	ico.Write([]byte{1, 0})   // color planes
+	ico.Write([]byte{32, 0})  // bits per pixel
+	// image data size (4 bytes, little-endian)
+	sz := uint32(len(pngData))
+	ico.Write([]byte{byte(sz), byte(sz >> 8), byte(sz >> 16), byte(sz >> 24)})
+	// offset to image data (4 bytes, little-endian) = 6 + 16 = 22
+	ico.Write([]byte{22, 0, 0, 0})
+	// PNG payload
+	ico.Write(pngData)
+
+	return ico.Bytes()
 }
