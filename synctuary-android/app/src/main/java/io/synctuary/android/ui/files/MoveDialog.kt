@@ -28,8 +28,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import io.synctuary.android.data.api.dto.FileEntry
 
 @Composable
@@ -56,11 +58,11 @@ fun MoveDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Move \"$entryName\"") },
+        title = { Text(stringResource(R.string.move_title, entryName)) },
         text = {
             Column {
                 Text(
-                    text = "Destination: $browsePath",
+                    text = stringResource(R.string.move_destination, browsePath),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -102,7 +104,7 @@ fun MoveDialog(
                     )
                 } else if (folders.isEmpty()) {
                     Text(
-                        "No subfolders",
+                        stringResource(R.string.move_no_subfolders),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -144,10 +146,10 @@ fun MoveDialog(
             TextButton(
                 onClick = { onConfirm(browsePath) },
                 enabled = browsePath != currentPath,
-            ) { Text("Move here") }
+            ) { Text(stringResource(R.string.move_here)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 }

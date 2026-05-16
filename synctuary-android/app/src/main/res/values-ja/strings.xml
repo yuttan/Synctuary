@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Synctuary</string>
+
+    <!-- Bottom nav tabs -->
+    <string name="tab_settings">設定</string>
+    <string name="tab_devices">デバイス</string>
+    <string name="tab_favorites">お気に入り</string>
+    <string name="tab_files">ファイル</string>
+
+    <!-- Onboarding: ServerUrlScreen -->
+    <string name="onboarding_connect_title">サーバーに接続</string>
+    <string name="onboarding_connect_desc">ローカルネットワーク上のSynctuaryサーバーアドレスを入力してください。</string>
+    <string name="onboarding_server_url">サーバーURL</string>
+    <string name="onboarding_next">次へ</string>
+    <string name="onboarding_scan_qr">QRコードをスキャン</string>
+
+    <!-- Onboarding: MnemonicScreen -->
+    <string name="mnemonic_title">シードフレーズ</string>
+    <string name="mnemonic_desc">サーバーセットアップ時に表示された24個の単語を入力してください。BIP-39形式。</string>
+    <string name="mnemonic_word_n">単語 %d</string>
+    <string name="mnemonic_paste">クリップボードから貼り付け</string>
+    <string name="mnemonic_start_pairing">ペアリング開始</string>
+    <string name="mnemonic_word_count">%1$d / 24 単語入力済み</string>
+
+    <!-- Onboarding: PairingProgressScreen -->
+    <string name="pairing_in_progress">ペアリング中…</string>
+    <string name="pairing_done">ペアリング完了！</string>
+    <string name="pairing_failed">ペアリング失敗</string>
+    <string name="pairing_retry">再試行</string>
+    <string name="pairing_continue">続行</string>
+    <string name="pairing_connected_to">%s に接続しました</string>
+
+    <!-- Onboarding: QrScannerScreen -->
+    <string name="qr_title">QRコードをスキャン</string>
+    <string name="qr_camera_required">QRコードのスキャンにはカメラの許可が必要です。</string>
+    <string name="qr_grant_permission">許可する</string>
+    <string name="qr_instruction">Synctuary管理画面のQRコードに\nカメラを向けてください</string>
+
+    <!-- Common -->
+    <string name="back">戻る</string>
+    <string name="cancel">キャンセル</string>
+    <string name="save">保存</string>
+    <string name="close">閉じる</string>
+    <string name="delete">削除</string>
+    <string name="edit">編集</string>
+    <string name="create">作成</string>
+    <string name="add">追加</string>
+
+    <!-- Files: FileBrowserScreen -->
+    <string name="files_search_hint">ファイルを検索…</string>
+    <string name="files_close_search">検索を閉じる</string>
+    <string name="files_sort">並び替え</string>
+    <string name="files_search">検索</string>
+    <string name="files_upload">アップロード</string>
+    <string name="files_sort_name">名前</string>
+    <string name="files_sort_date">日付</string>
+    <string name="files_sort_size">サイズ</string>
+    <string name="files_no_matches">一致なし</string>
+    <string name="files_no_shares">共有が設定されていません</string>
+    <string name="files_empty_folder">空のフォルダ</string>
+    <string name="files_downloaded">ダウンロード完了: %s</string>
+    <string name="files_download_failed">ダウンロード失敗: %s</string>
+    <string name="files_uploaded">アップロード完了: %s</string>
+    <string name="files_upload_failed">アップロード失敗: %s</string>
+    <string name="files_downloading">%s をダウンロード中…</string>
+    <string name="files_uploading">%s をアップロード中…</string>
+
+    <!-- Files: FileActionSheet -->
+    <string name="action_download">ダウンロード</string>
+    <string name="action_save_as">名前を付けて保存…</string>
+    <string name="action_add_to_favorites">お気に入りに追加…</string>
+    <string name="action_rename">名前変更</string>
+    <string name="action_move">移動</string>
+    <string name="action_details">詳細</string>
+    <string name="action_delete">削除</string>
+
+    <!-- Files: RenameDialog -->
+    <string name="rename_title">名前変更</string>
+    <string name="rename_label">新しい名前</string>
+
+    <!-- Files: MoveDialog -->
+    <string name="move_title">\"%s\" を移動</string>
+    <string name="move_destination">移動先: %s</string>
+    <string name="move_no_subfolders">サブフォルダなし</string>
+    <string name="move_here">ここに移動</string>
+
+    <!-- Files: FileDetailsDialog -->
+    <string name="details_title">詳細</string>
+    <string name="details_name">名前</string>
+    <string name="details_type">種類</string>
+    <string name="details_type_folder">フォルダ</string>
+    <string name="details_type_file">ファイル</string>
+    <string name="details_size">サイズ</string>
+    <string name="details_path">パス</string>
+    <string name="details_modified">更新日時</string>
+    <string name="details_sha256">SHA-256</string>
+
+    <!-- Favorites: FavoritesScreen -->
+    <string name="favorites_title">お気に入り</string>
+    <string name="favorites_empty">お気に入りはまだありません</string>
+    <string name="favorites_create_first">最初のリストを作成</string>
+    <string name="favorites_show_hidden">非表示リストを表示</string>
+    <string name="favorites_new_list">新しいリスト</string>
+    <string name="favorites_showing_hidden">非表示リストを表示中</string>
+    <string name="favorites_auto_lock">5分後またはアプリがバックグラウンドに移行すると自動ロック</string>
+    <string name="favorites_relock">再ロック</string>
+    <string name="favorites_hidden_badge">非表示</string>
+    <string name="favorites_items_count">%d 件</string>
+    <string name="favorites_make_visible">表示にする</string>
+    <string name="favorites_hide_list">リストを非表示</string>
+    <string name="favorites_create_new">新しいリストを作成</string>
+    <string name="favorites_new_list_title">新しいお気に入りリスト</string>
+    <string name="favorites_list_name">リスト名</string>
+    <string name="favorites_delete_title">\"%s\" を削除しますか？</string>
+    <string name="favorites_delete_message">リストが削除されます。ファイルには影響しません。</string>
+    <string name="favorites_list_options">リストオプション</string>
+    <string name="favorites_relock_hidden">非表示リストを再ロック</string>
+    <string name="favorites_more">その他</string>
+
+    <!-- Favorites: FavoriteListDetailScreen -->
+    <string name="favorites_detail_failed">リストの読み込みに失敗しました</string>
+    <string name="favorites_detail_empty">このリストにはアイテムがありません</string>
+    <string name="favorites_detail_hint">ファイルを長押しして「お気に入りに追加」を選択</string>
+    <string name="favorites_detail_added">%s に追加</string>
+    <string name="favorites_detail_remove">リストから削除</string>
+
+    <!-- Favorites: AddToFavoritesDialog -->
+    <string name="add_fav_title">お気に入りに追加</string>
+    <string name="add_fav_subtitle">\"%s\" を追加:</string>
+    <string name="add_fav_create_new">新しいリストを作成…</string>
+
+    <!-- Devices: DevicesScreen -->
+    <string name="devices_title">デバイス</string>
+    <string name="devices_this_device">このデバイス</string>
+    <string name="devices_other_devices">その他のデバイス</string>
+    <string name="devices_current">現在</string>
+    <string name="devices_revoked">取り消し済み</string>
+    <string name="devices_revoke">取り消し</string>
+    <string name="devices_revoke_title">デバイスを取り消しますか？</string>
+    <string name="devices_revoke_message">%s はこのサーバーへのアクセスを失います。この操作は取り消せません。</string>
+    <string name="devices_paired">ペアリング日: %s</string>
+    <string name="devices_just_now">たった今</string>
+    <string name="devices_min_ago">%d 分前</string>
+    <string name="devices_hours_ago">%d 時間前</string>
+    <string name="devices_days_ago">%d 日前</string>
+
+    <!-- Settings: SettingsScreen -->
+    <string name="settings_title">設定</string>
+    <string name="settings_connection">接続</string>
+    <string name="settings_home">ホーム</string>
+    <string name="settings_remote">リモート</string>
+    <string name="settings_home_url">ホームURL</string>
+    <string name="settings_remote_url">リモートURL</string>
+    <string name="settings_not_set">未設定</string>
+    <string name="settings_server">サーバー</string>
+    <string name="settings_server_id">サーバーID</string>
+    <string name="settings_tls_fingerprint">TLSフィンガープリント</string>
+    <string name="settings_protocol_version">プロトコルバージョン</string>
+    <string name="settings_this_device">このデバイス</string>
+    <string name="settings_unknown">不明</string>
+    <string name="settings_storage">ストレージ</string>
+    <string name="settings_download_folder">ダウンロードフォルダ</string>
+    <string name="settings_folder_not_set">未設定（タップして選択）</string>
+    <string name="settings_folder_selected">選択済み</string>
+    <string name="settings_folder_change">変更</string>
+    <string name="settings_folder_choose">選択</string>
+    <string name="settings_options">オプション</string>
+    <string name="settings_left_hand">左手モード</string>
+    <string name="settings_left_hand_desc">ナビゲーションバーとFABを左手用に反転</string>
+    <string name="settings_privacy">プライバシー</string>
+    <string name="settings_hidden_protection">非表示リストの保護</string>
+    <string name="settings_hidden_protection_desc">非表示のお気に入りを表示するには生体認証/PINが必要</string>
+    <string name="settings_about">アプリについて</string>
+    <string name="settings_app_version">アプリバージョン</string>
+    <string name="settings_photo_backup">写真バックアップ</string>
+    <string name="settings_auto_backup">自動バックアップ</string>
+    <string name="settings_wifi_only">Wi-Fiのみ</string>
+    <string name="settings_upload_to">アップロード先: %s</string>
+    <string name="settings_danger_zone">危険な操作</string>
+    <string name="settings_unpair">このデバイスのペアリングを解除</string>
+    <string name="settings_unpair_desc">ペアリング解除はローカルのdevice_tokenを削除し、サーバーからのアクセスを取り消します。</string>
+    <string name="settings_unpair_title">ペアリングを解除しますか？</string>
+    <string name="settings_unpair_message">ローカルのdevice_tokenが削除され、サーバーからのアクセスが取り消されます。再度ペアリングが必要になります。</string>
+
+    <!-- Language -->
+    <string name="settings_language">言語</string>
+</resources>

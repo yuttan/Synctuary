@@ -10,7 +10,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import io.synctuary.android.data.api.dto.FileEntry
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -26,21 +28,27 @@ fun FileDetailsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Details") },
+        title = { Text(stringResource(R.string.details_title)) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                DetailRow("Name", entry.name)
-                DetailRow("Type", if (entry.type == "dir") "Folder" else (entry.mime_type ?: "File"))
+                DetailRow(stringResource(R.string.details_name), entry.name)
+                DetailRow(
+                    stringResource(R.string.details_type),
+                    if (entry.type == "dir") stringResource(R.string.details_type_folder)
+                    else (entry.mime_type ?: stringResource(R.string.details_type_file)),
+                )
                 if (entry.type != "dir" && entry.size != null) {
-                    DetailRow("Size", formatDetailSize(entry.size))
+                    DetailRow(stringResource(R.string.details_size), formatDetailSize(entry.size))
                 }
-                DetailRow("Path", fullPath)
-                DetailRow("Modified", formatDetailDate(entry.modified_at))
-                entry.sha256?.let { DetailRow("SHA-256", it.take(16) + "...") }
+                DetailRow(stringResource(R.string.details_path), fullPath)
+                DetailRow(stringResource(R.string.details_modified), formatDetailDate(entry.modified_at))
+                entry.sha256?.let {
+                    DetailRow(stringResource(R.string.details_sha256), it.take(16) + "...")
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
         },
     )
 }

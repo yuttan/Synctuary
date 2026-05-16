@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import { api, Stats } from '../api'
 import { ToastContainer } from '../components/toast'
+import { t, useLocale } from '../i18n'
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -15,6 +16,7 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
+  useLocale()
 
   useEffect(() => {
     api.stats().then(s => {
@@ -25,28 +27,28 @@ export function Dashboard() {
 
   return (
     <div>
-      <h2 class="text-2xl font-bold text-white mb-6">Dashboard</h2>
+      <h2 class="text-2xl font-bold text-white mb-6">{t('dashboard.title')}</h2>
 
       {loading ? (
-        <div class="text-gray-400">Loading stats...</div>
+        <div class="text-gray-400">{t('dashboard.loadingStats')}</div>
       ) : stats ? (
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <StatCard
-            label="Active Devices"
+            label={t('dashboard.activeDevices')}
             value={stats.active_devices}
-            sub={`${stats.total_devices} total paired`}
+            sub={t('dashboard.totalPaired', { count: stats.total_devices })}
           />
           <StatCard
-            label="Shared Drives"
+            label={t('dashboard.sharedDrives')}
             value={stats.total_shares}
           />
           <StatCard
-            label="Server Status"
-            value="Online"
+            label={t('dashboard.serverStatus')}
+            value={t('dashboard.online')}
           />
         </div>
       ) : (
-        <div class="text-gray-400">Failed to load stats</div>
+        <div class="text-gray-400">{t('dashboard.failedStats')}</div>
       )}
 
       <ToastContainer />

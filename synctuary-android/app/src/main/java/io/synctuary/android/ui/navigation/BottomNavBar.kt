@@ -11,18 +11,20 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import io.synctuary.android.R
 
 private data class NavTab(
     val route: String,
-    val label: String,
+    val labelRes: Int,
     val icon: ImageVector,
 )
 
 private val tabs = listOf(
-    NavTab(NavRoute.TabSettings.route, "Settings", Icons.Filled.Settings),
-    NavTab(NavRoute.TabDevices.route, "Devices", Icons.Filled.Devices),
-    NavTab(NavRoute.TabFavorites.route, "Favorites", Icons.Filled.Favorite),
-    NavTab(NavRoute.TabFiles.route, "Files", Icons.Filled.Folder),
+    NavTab(NavRoute.TabSettings.route, R.string.tab_settings, Icons.Filled.Settings),
+    NavTab(NavRoute.TabDevices.route, R.string.tab_devices, Icons.Filled.Devices),
+    NavTab(NavRoute.TabFavorites.route, R.string.tab_favorites, Icons.Filled.Favorite),
+    NavTab(NavRoute.TabFiles.route, R.string.tab_files, Icons.Filled.Folder),
 )
 
 @Composable
@@ -34,11 +36,12 @@ fun BottomNavBar(
     val ordered = if (leftHandMode) tabs.reversed() else tabs
     NavigationBar {
         ordered.forEach { tab ->
+            val label = stringResource(tab.labelRes)
             NavigationBarItem(
                 selected = currentRoute == tab.route,
                 onClick = { onTabSelected(tab.route) },
-                icon = { Icon(tab.icon, contentDescription = tab.label) },
-                label = { Text(tab.label) },
+                icon = { Icon(tab.icon, contentDescription = label) },
+                label = { Text(label) },
             )
         }
     }

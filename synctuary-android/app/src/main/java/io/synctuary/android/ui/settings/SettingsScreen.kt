@@ -3,6 +3,7 @@ package io.synctuary.android.ui.settings
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -60,9 +62,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.os.LocaleListCompat
+import io.synctuary.android.R
 import io.synctuary.android.data.secret.SecretStore
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -83,7 +88,6 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri: Uri? ->
         if (uri != null) {
-            // Persist permission so the URI survives reboots.
             context.contentResolver.takePersistableUriPermission(
                 uri,
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
@@ -101,7 +105,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 ),
@@ -114,8 +118,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                 .padding(padding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         ) {
-            // Section 1: Connection
-            item { SectionHeader("Connection") }
+            // Section: Language
+            item { SectionHeader(stringResource(R.string.settings_language)) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -123,7 +127,19 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ),
                 ) {
-                    // Mode selector
+                    LanguageSelector()
+                }
+            }
+
+            // Section 1: Connection
+            item { SectionHeader(stringResource(R.string.settings_connection)) }
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -143,7 +159,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                         ) {
                             Icon(Icons.Filled.Home, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Home")
+                            Text(stringResource(R.string.settings_home))
                         }
                         Button(
                             onClick = { viewModel.setActiveMode(SecretStore.MODE_REMOTE) },
@@ -157,16 +173,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                         ) {
                             Icon(Icons.Filled.Public, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Remote")
+                            Text(stringResource(R.string.settings_remote))
                         }
                     }
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                    // Home URL
                     EditableUrlRow(
                         icon = Icons.Filled.Home,
-                        label = "Home URL",
+                        label = stringResource(R.string.settings_home_url),
                         value = state.serverUrl,
                         editing = editingHomeUrl,
                         draft = homeUrlDraft,
@@ -184,11 +199,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                    // Remote URL
                     EditableUrlRow(
                         icon = Icons.Filled.Public,
-                        label = "Remote URL",
-                        value = state.remoteUrl.ifEmpty { "Not set" },
+                        label = stringResource(R.string.settings_remote_url),
+                        value = state.remoteUrl.ifEmpty { stringResource(R.string.settings_not_set) },
                         editing = editingRemoteUrl,
                         draft = remoteUrlDraft,
                         onEditStart = {
@@ -206,7 +220,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
             }
 
             // Section 1b: Server info
-            item { SectionHeader("Server") }
+            item { SectionHeader(stringResource(R.string.settings_server)) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -214,16 +228,16 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ),
                 ) {
-                    InfoRow(Icons.Filled.Info, "server_id", state.serverId)
+                    InfoRow(Icons.Filled.Info, stringResource(R.string.settings_server_id), state.serverId)
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    InfoRow(Icons.Filled.Shield, "TLS fingerprint", state.tlsFingerprint)
+                    InfoRow(Icons.Filled.Shield, stringResource(R.string.settings_tls_fingerprint), state.tlsFingerprint)
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    InfoRow(Icons.Filled.Sync, "Protocol version", state.protocolVersion)
+                    InfoRow(Icons.Filled.Sync, stringResource(R.string.settings_protocol_version), state.protocolVersion)
                 }
             }
 
             // Section 2: This device
-            item { SectionHeader("This device") }
+            item { SectionHeader(stringResource(R.string.settings_this_device)) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -240,14 +254,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                     SettingsRow(
                         icon = Icons.Filled.PhoneAndroid,
                         iconTint = MaterialTheme.colorScheme.secondary,
-                        label = state.deviceName.ifEmpty { "Unknown" },
-                        description = "${state.platform} · Paired: $pairedDate",
+                        label = state.deviceName.ifEmpty { stringResource(R.string.settings_unknown) },
+                        description = "${state.platform} · ${stringResource(R.string.devices_paired, pairedDate)}",
                     )
                 }
             }
 
             // Section 3: Storage
-            item { SectionHeader("Storage") }
+            item { SectionHeader(stringResource(R.string.settings_storage)) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -256,18 +270,20 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                     ),
                 ) {
                     val folderLabel = state.downloadFolderUri?.let { uri ->
-                        // Show last path segment for readability.
                         Uri.parse(uri).lastPathSegment?.replace("primary:", "")
-                            ?: "Selected"
-                    } ?: "Not set (tap to choose)"
+                            ?: stringResource(R.string.settings_folder_selected)
+                    } ?: stringResource(R.string.settings_folder_not_set)
 
                     SettingsRow(
                         icon = Icons.Filled.FolderOpen,
-                        label = "Download folder",
+                        label = stringResource(R.string.settings_download_folder),
                         description = folderLabel,
                         trailing = {
                             TextButton(onClick = { folderPicker.launch(null) }) {
-                                Text(if (state.downloadFolderUri != null) "Change" else "Choose")
+                                Text(
+                                    if (state.downloadFolderUri != null) stringResource(R.string.settings_folder_change)
+                                    else stringResource(R.string.settings_folder_choose),
+                                )
                             }
                         },
                     )
@@ -275,7 +291,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
             }
 
             // Section 4: Options
-            item { SectionHeader("Options") }
+            item { SectionHeader(stringResource(R.string.settings_options)) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -285,8 +301,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                 ) {
                     SettingsRow(
                         icon = Icons.Filled.SwapHoriz,
-                        label = "Left-hand mode",
-                        description = "Flip bottom nav and FAB for left thumb reach",
+                        label = stringResource(R.string.settings_left_hand),
+                        description = stringResource(R.string.settings_left_hand_desc),
                         trailing = {
                             Switch(
                                 checked = state.leftHandMode,
@@ -298,7 +314,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
             }
 
             // Section 5: Privacy
-            item { SectionHeader("Privacy") }
+            item { SectionHeader(stringResource(R.string.settings_privacy)) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -308,8 +324,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                 ) {
                     SettingsRow(
                         icon = Icons.Filled.Lock,
-                        label = "Hidden list protection",
-                        description = "Require biometric / PIN to show hidden favorites",
+                        label = stringResource(R.string.settings_hidden_protection),
+                        description = stringResource(R.string.settings_hidden_protection_desc),
                         trailing = {
                             Switch(
                                 checked = state.biometricProtection,
@@ -321,7 +337,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
             }
 
             // Section 6: App version
-            item { SectionHeader("About") }
+            item { SectionHeader(stringResource(R.string.settings_about)) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -329,12 +345,12 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ),
                 ) {
-                    InfoRow(Icons.Filled.Info, "App version", io.synctuary.android.BuildConfig.VERSION_NAME)
+                    InfoRow(Icons.Filled.Info, stringResource(R.string.settings_app_version), io.synctuary.android.BuildConfig.VERSION_NAME)
                 }
             }
 
             // Section 7: Photo backup
-            item { SectionHeader("Photo backup") }
+            item { SectionHeader(stringResource(R.string.settings_photo_backup)) }
             item {
                 OutlinedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -343,7 +359,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("Auto backup", style = MaterialTheme.typography.bodyLarge)
+                            Text(stringResource(R.string.settings_auto_backup), style = MaterialTheme.typography.bodyLarge)
                             Switch(
                                 checked = state.backupEnabled,
                                 onCheckedChange = { viewModel.setBackupEnabled(it) },
@@ -355,7 +371,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("Wi-Fi only", style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.settings_wifi_only), style = MaterialTheme.typography.bodyMedium)
                             Switch(
                                 checked = state.backupWifiOnly,
                                 onCheckedChange = { viewModel.setBackupWifiOnly(it) },
@@ -364,7 +380,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "Upload to: ${state.backupRemotePath}",
+                            text = stringResource(R.string.settings_upload_to, state.backupRemotePath),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -373,7 +389,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
             }
 
             // Section 8: Danger zone
-            item { SectionHeader("Danger zone") }
+            item { SectionHeader(stringResource(R.string.settings_danger_zone)) }
             item {
                 OutlinedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -388,11 +404,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                             ),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Unpair this device")
+                            Text(stringResource(R.string.settings_unpair))
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "Unpairing deletes local device_token and revokes from server.",
+                            text = stringResource(R.string.settings_unpair_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -407,25 +423,96 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
     if (showUnpairDialog) {
         AlertDialog(
             onDismissRequest = { showUnpairDialog = false },
-            title = { Text("Unpair this device?") },
+            title = { Text(stringResource(R.string.settings_unpair_title)) },
             text = {
-                Text("This will delete the local device_token and revoke access from the server. You will need to re-pair to use this app.")
+                Text(stringResource(R.string.settings_unpair_message))
             },
             confirmButton = {
                 TextButton(onClick = {
                     showUnpairDialog = false
                     viewModel.unpair { onUnpaired() }
                 }) {
-                    Text("Unpair", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.settings_unpair), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showUnpairDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel))
                 }
             },
         )
     }
+}
+
+@Composable
+private fun LanguageSelector() {
+    val currentLocale = AppCompatDelegate.getApplicationLocales().toLanguageTags()
+    val isJapanese = currentLocale.startsWith("ja")
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Language,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.settings_language),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LanguageChip(
+                label = "English",
+                selected = !isJapanese,
+                onClick = {
+                    AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("en"))
+                },
+            )
+            LanguageChip(
+                label = "日本語",
+                selected = isJapanese,
+                onClick = {
+                    AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("ja"))
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LanguageChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = fg,
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 @Composable
@@ -570,11 +657,11 @@ private fun EditableUrlRow(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 TextButton(onClick = onCancel) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel))
                 }
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onSave) {
-                    Text("Save")
+                    Text(stringResource(R.string.save))
                 }
             }
         }
@@ -621,7 +708,7 @@ private fun EditableUrlRow(
 
             Icon(
                 imageVector = Icons.Filled.Edit,
-                contentDescription = "Edit",
+                contentDescription = stringResource(R.string.edit),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )

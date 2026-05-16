@@ -44,11 +44,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.synctuary.android.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,10 +71,10 @@ fun MnemonicScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Seed Phrase") },
+                title = { Text(stringResource(R.string.mnemonic_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -89,14 +91,13 @@ fun MnemonicScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "Enter the 24 words shown during server setup. BIP-39 format.",
+                text = stringResource(R.string.mnemonic_desc),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Spacer(Modifier.height(12.dp))
 
-            // 3-column x 8-row mnemonic grid
             for (row in 0 until 8) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -121,13 +122,11 @@ fun MnemonicScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Word input field
             OutlinedTextField(
                 value = inputText,
                 onValueChange = { raw ->
                     val cleaned = raw.lowercase().trim()
                     if (cleaned.contains(' ')) {
-                        // Space typed — commit current word, advance
                         val word = cleaned.replace(" ", "")
                         if (word.isNotEmpty()) {
                             viewModel.setWord(editingIndex, word)
@@ -141,7 +140,7 @@ fun MnemonicScreen(
                         viewModel.setWord(editingIndex, cleaned)
                     }
                 },
-                label = { Text("Word ${editingIndex + 1}") },
+                label = { Text(stringResource(R.string.mnemonic_word_n, editingIndex + 1)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(
@@ -165,7 +164,6 @@ fun MnemonicScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Paste from clipboard
             TextButton(
                 onClick = {
                     clipboard.getText()?.text?.let { text ->
@@ -179,7 +177,7 @@ fun MnemonicScreen(
                     contentDescription = null,
                     modifier = Modifier.padding(end = 8.dp),
                 )
-                Text("Paste from clipboard")
+                Text(stringResource(R.string.mnemonic_paste))
             }
 
             state.mnemonicError?.let { err ->
@@ -200,12 +198,12 @@ fun MnemonicScreen(
                     .fillMaxWidth()
                     .height(48.dp),
             ) {
-                Text("Start Pairing")
+                Text(stringResource(R.string.mnemonic_start_pairing))
             }
 
             if (!allFilled) {
                 Text(
-                    text = "$filledCount / 24 words entered",
+                    text = stringResource(R.string.mnemonic_word_count, filledCount),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier

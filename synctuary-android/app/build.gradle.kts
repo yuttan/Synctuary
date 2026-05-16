@@ -20,7 +20,7 @@ android {
         minSdk                    = 26          // BiometricPrompt needs API 28; 26 floor for tonal palette.
         targetSdk                 = 34
         versionCode               = 1
-        versionName               = "0.5.4"
+        versionName               = "0.5.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -83,6 +83,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.appcompat)
 
     // Compose: the BOM pins compose-* artifact versions to a tested matrix.
     implementation(platform(libs.compose.bom))

@@ -1,28 +1,44 @@
 import { ToastContainer } from '../components/toast'
+import { t, useLocale, setLocale, LOCALE_LABELS, Locale } from '../i18n'
 
 export function Settings() {
+  const currentLocale = useLocale()
+
   return (
     <div>
-      <h2 class="text-2xl font-bold text-white mb-6">Settings</h2>
+      <h2 class="text-2xl font-bold text-white mb-6">{t('settings.title')}</h2>
 
       <div class="space-y-6">
-        <Section title="Server">
-          <InfoRow label="Version" value="v0.5.0-dev" />
-          <InfoRow label="Protocol" value="v0.2.3" />
+        <Section title={t('settings.language')}>
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-gray-400">{t('settings.languageLabel')}</span>
+            <select
+              value={currentLocale}
+              onChange={e => setLocale((e.target as HTMLSelectElement).value as Locale)}
+              class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              {(Object.keys(LOCALE_LABELS) as Locale[]).map(l => (
+                <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
+              ))}
+            </select>
+          </div>
         </Section>
 
-        <Section title="About">
+        <Section title={t('settings.server')}>
+          <InfoRow label={t('settings.version')} value="v0.5.0-dev" />
+          <InfoRow label={t('settings.protocol')} value="v0.2.3" />
+        </Section>
+
+        <Section title={t('settings.about')}>
           <div class="text-sm text-gray-400 space-y-2">
             <p>
-              Synctuary is a self-hosted file-sync server for your home LAN.
+              {t('settings.aboutText')}
             </p>
             <p>
-              Licensed under Apache-2.0.
+              {t('settings.license')}
             </p>
             <p class="text-gray-500">
-              Configuration changes beyond what's shown here can be made via the config YAML file
-              or SYNCTUARY_* environment variables. A server restart is required for changes to
-              listen address, TLS, storage paths, and database path.
+              {t('settings.configHint')}
             </p>
           </div>
         </Section>
