@@ -218,8 +218,8 @@ private fun SynctuaryNavHost() {
                         onboardingVm.setServerUrl(url)
                         navController.popBackStack()
                     },
-                    onPairingUri = { url, masterKeyB64 ->
-                        onboardingVm.setQrPairingData(url, masterKeyB64)
+                    onPairingUri = { url, masterKeyB64, tlsFpHex ->
+                        onboardingVm.setQrPairingData(url, masterKeyB64, tlsFpHex)
                         navController.navigate(NavRoute.PairingProgress.route) {
                             popUpTo(NavRoute.ServerUrl.route)
                         }

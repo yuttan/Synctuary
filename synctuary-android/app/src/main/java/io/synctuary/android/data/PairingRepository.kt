@@ -45,11 +45,12 @@ class PairingRepository(
         masterKey: ByteArray,
         deviceName: String = defaultDeviceName(),
         platform: String = "android",
+        qrFingerprint: ByteArray? = null,
     ): PairedDeviceSummary = withContext(Dispatchers.IO) {
         val deviceId = ByteArray(KeyDerivation.DEVICE_ID_LEN).also { rng.nextBytes(it) }
         val keypair: Ed25519.KeyPair = KeyDerivation.deriveDeviceKeypair(masterKey, deviceId)
         masterKey.fill(0)
-        completePairing(serverUrl, deviceId, keypair, deviceName, platform)
+        completePairing(serverUrl, deviceId, keypair, deviceName, platform, qrFingerprint)
     }
 
     suspend fun pair(
@@ -88,8 +89,12 @@ class PairingRepository(
         keypair: Ed25519.KeyPair,
         deviceName: String,
         platform: String,
+        qrFingerprint: ByteArray? = null,
     ): PairedDeviceSummary {
-        val unpinned = NetworkModule.create(serverUrl)
+        // When the QR code includes the TLS fingerprint, use it for the
+        // initial /info call so we can trust the server's self-signed cert
+        // on first contact (TOFU via QR).
+        val unpinned = NetworkModule.create(serverUrl, qrFingerprint)
         val info = try {
             unpinned.info()
         } catch (e: Exception) {
