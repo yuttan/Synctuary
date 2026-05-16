@@ -13,6 +13,13 @@ import (
 	"github.com/synctuary/synctuary-server/internal/domain/file"
 )
 
+// maxConcurrentHash limits the number of parallel on-demand SHA-256
+// computations (triggered by GET ?hash=true). Without a bound, a
+// single request for a large directory could saturate disk I/O.
+// PROTOCOL §6.1 allows the server to return sha256:null when under
+// pressure, which is what we do when the semaphore is full.
+const maxConcurrentHash = 4
+
 // FileService composes the repository (metadata index), the storage
 // (content plane) and the upload session coordinator into the flow
 // behind /api/v1/files*. The dedup decision tree lives here — see
@@ -23,6 +30,7 @@ type FileService struct {
 	uploads       file.UploadSession
 	dedupFallback string
 	dedupTimeout  time.Duration
+	hashSem       chan struct{} // bounded semaphore for on-demand SHA-256
 	log           *slog.Logger
 }
 
@@ -51,6 +59,7 @@ func NewFileService(
 		uploads:       uploads,
 		dedupFallback: dedupFallback,
 		dedupTimeout:  dedupTimeout,
+		hashSem:       make(chan struct{}, maxConcurrentHash),
 		log:           slog.Default(),
 	}
 	for _, o := range opts {
@@ -77,6 +86,7 @@ func (s *FileService) WithStorage(storage file.FileStorage) *FileService {
 		uploads:       s.uploads,
 		dedupFallback: s.dedupFallback,
 		dedupTimeout:  s.dedupTimeout,
+		hashSem:       s.hashSem,
 		log:           s.log,
 	}
 }
@@ -159,8 +169,8 @@ func (s *FileService) InitUpload(ctx context.Context, params *file.UploadInitPar
 	return s.uploads.Init(ctx, params)
 }
 
-func (s *FileService) AppendChunk(ctx context.Context, uploadID string, rangeStart int64, data []byte) error {
-	return s.uploads.AppendChunk(ctx, uploadID, rangeStart, data)
+func (s *FileService) AppendChunk(ctx context.Context, uploadID string, rangeStart int64, body io.Reader, chunkSize int64) error {
+	return s.uploads.AppendChunk(ctx, uploadID, rangeStart, body, chunkSize)
 }
 
 func (s *FileService) Progress(ctx context.Context, uploadID string) (int64, bool, int64, error) {
@@ -207,8 +217,20 @@ func (s *FileService) List(ctx context.Context, path string, withHash bool) (*Li
 }
 
 // computeSHA256 reads a file from storage and returns its SHA-256 hash.
-// Errors are swallowed by the caller (best-effort).
+// Errors are swallowed by the caller (best-effort). The semaphore
+// limits concurrent hashing to maxConcurrentHash; if the slot cannot
+// be acquired before ctx expires, the caller gets an error and the
+// List response returns sha256:null for that entry — graceful
+// degradation per PROTOCOL §6.1.
 func (s *FileService) computeSHA256(ctx context.Context, path string) ([]byte, error) {
+	// Acquire semaphore slot, respecting request context.
+	select {
+	case s.hashSem <- struct{}{}:
+		defer func() { <-s.hashSem }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	rc, err := s.storage.Get(ctx, path, 0, -1)
 	if err != nil {
 		return nil, err
