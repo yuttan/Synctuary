@@ -81,9 +81,22 @@ func main() {
 	configPath := flag.String("config", "", "path to YAML config file (optional; env-only is fine)")
 	flag.Parse()
 
+	// Auto-detect config file when -config is not specified.
+	// This makes double-click launching work on Windows without
+	// having to pass CLI flags.
+	if *configPath == "" {
+		for _, candidate := range []string{"config.local.yml", "config.yml", "config.local.yaml", "config.yaml"} {
+			if _, err := os.Stat(candidate); err == nil {
+				*configPath = candidate
+				break
+			}
+		}
+	}
+
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "synctuaryd: config load failed: %v\n", err)
+		fatalPause()
 		os.Exit(1)
 	}
 
@@ -103,11 +116,13 @@ func main() {
 	masterKey, err := loadOrInitMasterKey(secretStore, logger)
 	if err != nil {
 		logger.Error("master_key init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	serverID, err := deriveServerID(masterKey)
 	if err != nil {
 		logger.Error("server_id derivation failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 
@@ -115,6 +130,7 @@ func main() {
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
 		logger.Error("database open failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	defer func() {
@@ -124,6 +140,7 @@ func main() {
 	}()
 	if err := db.Migrate(database, migrations.FS, migrations.Dir); err != nil {
 		logger.Error("migrations failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	logger.Info("migrations applied")
@@ -158,6 +175,7 @@ func main() {
 	storage, err := fs.NewFileStorage(cfg.Storage.RootPath, cfg.Storage.StagingPath, &shaResolver{repo: fileRepo, root: cfg.Storage.RootPath})
 	if err != nil {
 		logger.Error("file storage init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 
@@ -169,6 +187,7 @@ func main() {
 	)
 	if err != nil {
 		logger.Error("upload store init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 
@@ -178,11 +197,13 @@ func main() {
 	pairingSvc, err := usecasePairing(nonceStore, deviceRepo, limiter, masterKey, tlsFingerprint, cfg.Pairing.NonceTTL)
 	if err != nil {
 		logger.Error("pairing service init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	fileSvc, err := usecaseFile(fileRepo, storage, uploads, cfg.Upload.DedupFallback, cfg.Upload.DedupSyncCopyTimeout, logger)
 	if err != nil {
 		logger.Error("file service init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	thumbSvc := usecase.NewThumbnailService(thumbRepo, storage, logger)
@@ -190,21 +211,25 @@ func main() {
 	favoriteSvc, err := usecase.NewFavoriteService(favoriteRepo, nil)
 	if err != nil {
 		logger.Error("favorite service init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	shareSvc, err := usecase.NewShareService(shareRepo, nil)
 	if err != nil {
 		logger.Error("share service init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	pinSvc, err := usecase.NewPinService(pinRepo, shareRepo, nil)
 	if err != nil {
 		logger.Error("pin service init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	adminSvc, err := usecase.NewAdminService(database, nil)
 	if err != nil {
 		logger.Error("admin service init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 
@@ -247,12 +272,14 @@ func main() {
 
 	default:
 		logger.Error("remote_access.mode invalid", "mode", cfg.RemoteAccess.Mode)
+		fatalPause()
 		os.Exit(1)
 	}
 
 	// Auto-create default share from legacy storage.root_path.
 	if _, err := shareSvc.EnsureDefault(context.Background(), cfg.Storage.RootPath); err != nil {
 		logger.Error("default share init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	logger.Info("shares initialized")
@@ -372,24 +399,27 @@ func main() {
 	})
 	if err != nil {
 		logger.Error("http handler init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 
 	// ── admin handler ────────────────────────────────────────────────
 	adminHandler, err := adminapi.NewHandler(adminapi.HandlerConfig{
-		Admin:        adminSvc,
-		Shares:       shareSvc,
-		Devices:      deviceSvc,
-		WG:           wgSvc, // nil when mode != "wireguard"
-		Logger:       logger,
-		ConfigToken:  cfg.Admin.Token,
-		MasterKey:    masterKey,
-		ListenAddr:   cfg.Server.Addr,
-		TLSEnabled:   cfg.Server.TLSCertPath != "",
-		RemoteAccess: cfg.RemoteAccess,
+		Admin:          adminSvc,
+		Shares:         shareSvc,
+		Devices:        deviceSvc,
+		WG:             wgSvc, // nil when mode != "wireguard"
+		Logger:         logger,
+		ConfigToken:    cfg.Admin.Token,
+		MasterKey:      masterKey,
+		TLSFingerprint: tlsFingerprint,
+		ListenAddr:     cfg.Server.Addr,
+		TLSEnabled:     cfg.Server.TLSCertPath != "",
+		RemoteAccess:   cfg.RemoteAccess,
 	})
 	if err != nil {
 		logger.Error("admin handler init failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 
@@ -458,6 +488,7 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "err", err)
+		fatalPause()
 		os.Exit(1)
 	}
 	stopTray()

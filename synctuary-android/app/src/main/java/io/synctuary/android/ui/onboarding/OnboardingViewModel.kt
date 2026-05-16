@@ -88,8 +88,8 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
 
     // ── QR pairing (synctuary:// URI with master_key) ────────────────
 
-    fun setQrPairingData(url: String, masterKeyB64: String) {
-        _uiState.update { it.copy(serverUrl = url, qrMasterKeyB64 = masterKeyB64) }
+    fun setQrPairingData(url: String, masterKeyB64: String, tlsFingerprintHex: String? = null) {
+        _uiState.update { it.copy(serverUrl = url, qrMasterKeyB64 = masterKeyB64, qrTlsFingerprintHex = tlsFingerprintHex) }
     }
 
     fun hasQrMasterKey(): Boolean =
@@ -113,9 +113,14 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
                 val masterKey = android.util.Base64.decode(
                     keyB64, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
                 )
+                // Decode TLS fingerprint from QR if present (hex string → bytes).
+                // This lets the initial /info call trust the self-signed cert.
+                val qrFingerprint: ByteArray? = state.qrTlsFingerprintHex?.let { hex ->
+                    hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                }
                 advanceStep(0, StepStatus.DONE)
                 advanceStep(1, StepStatus.ACTIVE)
-                val summary = repo.pairWithMasterKey(state.serverUrl, masterKey)
+                val summary = repo.pairWithMasterKey(state.serverUrl, masterKey, qrFingerprint = qrFingerprint)
                 advanceStep(1, StepStatus.DONE)
                 advanceStep(2, StepStatus.DONE)
                 advanceStep(3, StepStatus.DONE)
@@ -228,6 +233,7 @@ data class OnboardingUiState(
     val serverUrl: String = "https://",
     val serverUrlError: String? = null,
     val qrMasterKeyB64: String? = null,
+    val qrTlsFingerprintHex: String? = null,
     val words: List<String> = List(24) { "" },
     val mnemonicError: String? = null,
     val pairingSteps: List<PairingStep> = emptyList(),

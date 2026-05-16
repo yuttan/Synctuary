@@ -58,7 +58,7 @@ import java.util.concurrent.Executors
 @Composable
 fun QrScannerScreen(
     onScanned: (String) -> Unit,
-    onPairingUri: ((url: String, masterKeyB64: String) -> Unit)? = null,
+    onPairingUri: ((url: String, masterKeyB64: String, tlsFingerprintHex: String?) -> Unit)? = null,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -105,7 +105,7 @@ fun QrScannerScreen(
                     when (result.type) {
                         QrResultType.PAIRING_URI -> {
                             if (onPairingUri != null && result.masterKeyB64 != null) {
-                                onPairingUri(result.url, result.masterKeyB64)
+                                onPairingUri(result.url, result.masterKeyB64, result.tlsFingerprintHex)
                             } else {
                                 onScanned(result.url)
                             }
@@ -237,6 +237,7 @@ data class QrResult(
     val type: QrResultType,
     val url: String,
     val masterKeyB64: String? = null,
+    val tlsFingerprintHex: String? = null,
 )
 
 enum class QrResultType { URL, PAIRING_URI }
@@ -279,5 +280,6 @@ private fun parsePairingUri(value: String): QrResult? {
     }
     val url = params["url"] ?: return null
     val key = params["key"] ?: return null
-    return QrResult(QrResultType.PAIRING_URI, url, key)
+    val fp = params["fp"] // optional TLS fingerprint hex
+    return QrResult(QrResultType.PAIRING_URI, url, key, fp)
 }

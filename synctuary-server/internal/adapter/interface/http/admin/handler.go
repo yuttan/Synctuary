@@ -35,16 +35,17 @@ const configTokenSentinel = "_cfg_tok_" //nolint:gosec // G101: sentinel marker,
 
 // Handler is the admin Web UI HTTP handler.
 type Handler struct {
-	admin        *usecase.AdminService
-	shares       *usecase.ShareService
-	devices      *usecase.DeviceService
-	wg           *usecase.WGService // nil when mode != "wireguard"
-	log          *slog.Logger
-	configToken  string
-	masterKey    []byte // 32 bytes; included in pairing QR for one-scan onboarding
-	listenAddr   string
-	tlsEnabled   bool
-	remoteAccess config.RemoteAccessConfig
+	admin          *usecase.AdminService
+	shares         *usecase.ShareService
+	devices        *usecase.DeviceService
+	wg             *usecase.WGService // nil when mode != "wireguard"
+	log            *slog.Logger
+	configToken    string
+	masterKey      []byte // 32 bytes; included in pairing QR for one-scan onboarding
+	tlsFingerprint []byte // 32 bytes SHA-256 of the leaf cert DER; included in pairing QR so the client can trust the self-signed cert on first contact
+	listenAddr     string
+	tlsEnabled     bool
+	remoteAccess   config.RemoteAccessConfig
 
 	mu          sync.RWMutex
 	pendingMode string // non-empty when the user changed the mode but hasn't restarted yet
@@ -52,16 +53,17 @@ type Handler struct {
 
 // HandlerConfig is the constructor input for the admin handler.
 type HandlerConfig struct {
-	Admin        *usecase.AdminService
-	Shares       *usecase.ShareService
-	Devices      *usecase.DeviceService
-	WG           *usecase.WGService // nil when mode != "wireguard"
-	Logger       *slog.Logger
-	ConfigToken  string // optional pre-shared token for API automation
-	MasterKey    []byte // 32 bytes; for pairing QR generation
-	ListenAddr   string // e.g. ":8443"
-	TLSEnabled   bool
-	RemoteAccess config.RemoteAccessConfig
+	Admin          *usecase.AdminService
+	Shares         *usecase.ShareService
+	Devices        *usecase.DeviceService
+	WG             *usecase.WGService // nil when mode != "wireguard"
+	Logger         *slog.Logger
+	ConfigToken    string // optional pre-shared token for API automation
+	MasterKey      []byte // 32 bytes; for pairing QR generation
+	TLSFingerprint []byte // 32 bytes; SHA-256 of the leaf cert DER for QR pairing
+	ListenAddr     string // e.g. ":8443"
+	TLSEnabled     bool
+	RemoteAccess   config.RemoteAccessConfig
 }
 
 // NewHandler validates the config and returns an admin Handler.
@@ -73,16 +75,17 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		return nil, fmt.Errorf("admin: missing logger")
 	}
 	return &Handler{
-		admin:        cfg.Admin,
-		shares:       cfg.Shares,
-		devices:      cfg.Devices,
-		wg:           cfg.WG,
-		log:          cfg.Logger,
-		configToken:  cfg.ConfigToken,
-		masterKey:    cfg.MasterKey,
-		listenAddr:   cfg.ListenAddr,
-		tlsEnabled:   cfg.TLSEnabled,
-		remoteAccess: cfg.RemoteAccess,
+		admin:          cfg.Admin,
+		shares:         cfg.Shares,
+		devices:        cfg.Devices,
+		wg:             cfg.WG,
+		log:            cfg.Logger,
+		configToken:    cfg.ConfigToken,
+		masterKey:      cfg.MasterKey,
+		tlsFingerprint: cfg.TLSFingerprint,
+		listenAddr:     cfg.ListenAddr,
+		tlsEnabled:     cfg.TLSEnabled,
+		remoteAccess:   cfg.RemoteAccess,
 	}, nil
 }
 
@@ -429,9 +432,17 @@ func (h *Handler) PairingInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	b64url := base64.RawURLEncoding
+	fpHex := ""
+	if len(h.tlsFingerprint) == 32 {
+		fpHex = hex.EncodeToString(h.tlsFingerprint)
+	}
 	var pairingURIs []string
 	for _, u := range urls {
-		pairingURIs = append(pairingURIs, "synctuary://pair?url="+u+"&key="+b64url.EncodeToString(h.masterKey))
+		uri := "synctuary://pair?url=" + u + "&key=" + b64url.EncodeToString(h.masterKey)
+		if fpHex != "" {
+			uri += "&fp=" + fpHex
+		}
+		pairingURIs = append(pairingURIs, uri)
 	}
 	primaryURI := ""
 	if len(pairingURIs) > 0 {
