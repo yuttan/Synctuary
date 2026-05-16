@@ -27,9 +27,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import io.synctuary.android.ui.theme.SynctuarySuccess
 
 @Composable
@@ -65,7 +67,7 @@ fun PairingProgressScreen(
                 )
                 Spacer(Modifier.height(24.dp))
                 Text(
-                    text = "Pairing...",
+                    text = stringResource(R.string.pairing_in_progress),
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -78,7 +80,7 @@ fun PairingProgressScreen(
                 )
                 Spacer(Modifier.height(24.dp))
                 Text(
-                    text = "Paired!",
+                    text = stringResource(R.string.pairing_done),
                     style = MaterialTheme.typography.headlineSmall,
                     color = SynctuarySuccess,
                 )
@@ -91,7 +93,7 @@ fun PairingProgressScreen(
                 )
                 Spacer(Modifier.height(24.dp))
                 Text(
-                    text = "Pairing failed",
+                    text = stringResource(R.string.pairing_failed),
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -107,7 +109,6 @@ fun PairingProgressScreen(
 
             Spacer(Modifier.height(32.dp))
 
-            // Step list
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -117,7 +118,6 @@ fun PairingProgressScreen(
                 }
             }
 
-            // Error message
             state.pairingError?.let { err ->
                 Spacer(Modifier.height(16.dp))
                 Text(
@@ -129,16 +129,15 @@ fun PairingProgressScreen(
                 )
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { viewModel.retryPairing() }) {
-                    Text("Retry")
+                    Text(stringResource(R.string.pairing_retry))
                 }
             }
 
-            // Success summary + continue
             if (state.pairingDone) {
                 state.pairingSummary?.let { summary ->
                     Spacer(Modifier.height(24.dp))
                     Text(
-                        text = "Connected to ${summary.serverName}",
+                        text = stringResource(R.string.pairing_connected_to, summary.serverName),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.Center,
@@ -152,7 +151,7 @@ fun PairingProgressScreen(
                         .fillMaxWidth()
                         .height(48.dp),
                 ) {
-                    Text("Continue")
+                    Text(stringResource(R.string.pairing_continue))
                 }
             }
 
@@ -169,7 +168,6 @@ private fun StepRow(step: PairingStep) {
             .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Step icon
         when (step.status) {
             StepStatus.DONE -> {
                 Icon(

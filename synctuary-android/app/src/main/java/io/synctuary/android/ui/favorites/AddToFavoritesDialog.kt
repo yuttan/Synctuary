@@ -29,8 +29,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import io.synctuary.android.data.FavoritesRepository
 import io.synctuary.android.data.api.dto.FavoriteListDto
 import io.synctuary.android.data.secret.SecretStore
@@ -62,11 +64,11 @@ fun AddToFavoritesDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add to Favorites") },
+        title = { Text(stringResource(R.string.add_fav_title)) },
         text = {
             Column {
                 Text(
-                    text = "Add \"$fileName\" to:",
+                    text = stringResource(R.string.add_fav_subtitle, fileName),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -106,7 +108,7 @@ fun AddToFavoritesDialog(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        "${list.item_count} items",
+                                        stringResource(R.string.favorites_items_count, list.item_count),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -128,7 +130,7 @@ fun AddToFavoritesDialog(
                                 )
                                 Spacer(Modifier.width(12.dp))
                                 Text(
-                                    "Create new list...",
+                                    stringResource(R.string.add_fav_create_new),
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
@@ -150,11 +152,11 @@ fun AddToFavoritesDialog(
                 },
                 enabled = selectedIds.isNotEmpty(),
             ) {
-                Text("Add")
+                Text(stringResource(R.string.add))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 
@@ -182,12 +184,12 @@ private fun CreateListInlineDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New list") },
+        title = { Text(stringResource(R.string.favorites_new_list)) },
         text = {
             androidx.compose.material3.OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("List name") },
+                label = { Text(stringResource(R.string.favorites_list_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -206,11 +208,11 @@ private fun CreateListInlineDialog(
                 },
                 enabled = name.isNotBlank(),
             ) {
-                Text("Create")
+                Text(stringResource(R.string.create))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 }

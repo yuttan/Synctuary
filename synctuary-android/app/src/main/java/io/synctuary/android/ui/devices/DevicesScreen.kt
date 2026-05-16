@@ -48,8 +48,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import io.synctuary.android.data.api.dto.DeviceDto
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -71,7 +74,7 @@ fun DevicesScreen(viewModel: DevicesViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Devices") },
+                title = { Text(stringResource(R.string.devices_title)) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 ),
@@ -97,7 +100,7 @@ fun DevicesScreen(viewModel: DevicesViewModel) {
                     contentPadding = PaddingValues(16.dp),
                 ) {
                     if (selfDevice != null) {
-                        item { SectionHeader("This device") }
+                        item { SectionHeader(stringResource(R.string.devices_this_device)) }
                         item {
                             CurrentDeviceCard(device = selfDevice)
                         }
@@ -106,7 +109,7 @@ fun DevicesScreen(viewModel: DevicesViewModel) {
                     if (otherDevices.isNotEmpty()) {
                         item {
                             Spacer(Modifier.height(16.dp))
-                            SectionHeader("Other devices")
+                            SectionHeader(stringResource(R.string.devices_other_devices))
                         }
                         items(otherDevices, key = { it.device_id }) { device ->
                             OtherDeviceCard(
@@ -169,14 +172,14 @@ private fun CurrentDeviceCard(device: DeviceDto) {
                     )
                     Spacer(Modifier.width(8.dp))
                     StatusChip(
-                        label = "CURRENT",
+                        label = stringResource(R.string.devices_current),
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${device.platform} · Paired: ${formatDate(device.created_at)}",
+                    text = "${device.platform} · ${stringResource(R.string.devices_paired, formatDate(device.created_at))}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -195,6 +198,7 @@ private fun CurrentDeviceCard(device: DeviceDto) {
 @Composable
 private fun OtherDeviceCard(device: DeviceDto, onRevoke: () -> Unit) {
     var showRevokeDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Card(
         modifier = Modifier
@@ -234,7 +238,7 @@ private fun OtherDeviceCard(device: DeviceDto, onRevoke: () -> Unit) {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${device.platform} · ${relativeTime(device.last_seen_at)}",
+                    text = "${device.platform} · ${relativeTime(device.last_seen_at, context)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -242,7 +246,7 @@ private fun OtherDeviceCard(device: DeviceDto, onRevoke: () -> Unit) {
 
             if (device.revoked) {
                 StatusChip(
-                    label = "REVOKED",
+                    label = stringResource(R.string.devices_revoked),
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                     labelColor = MaterialTheme.colorScheme.onErrorContainer,
                 )
@@ -250,7 +254,7 @@ private fun OtherDeviceCard(device: DeviceDto, onRevoke: () -> Unit) {
                 IconButton(onClick = { showRevokeDialog = true }) {
                     Icon(
                         Icons.Outlined.RemoveCircleOutline,
-                        contentDescription = "Revoke",
+                        contentDescription = stringResource(R.string.devices_revoke),
                         tint = MaterialTheme.colorScheme.error,
                     )
                 }
@@ -261,21 +265,21 @@ private fun OtherDeviceCard(device: DeviceDto, onRevoke: () -> Unit) {
     if (showRevokeDialog) {
         AlertDialog(
             onDismissRequest = { showRevokeDialog = false },
-            title = { Text("Revoke device?") },
+            title = { Text(stringResource(R.string.devices_revoke_title)) },
             text = {
-                Text("${device.device_name} will lose access to this server. This cannot be undone.")
+                Text(stringResource(R.string.devices_revoke_message, device.device_name))
             },
             confirmButton = {
                 TextButton(onClick = {
                     showRevokeDialog = false
                     onRevoke()
                 }) {
-                    Text("Revoke", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.devices_revoke), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRevokeDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel))
                 }
             },
         )
@@ -311,13 +315,13 @@ private fun platformIcon(platform: String): ImageVector = when (platform.lowerca
 private fun formatDate(epochSeconds: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(epochSeconds * 1000))
 
-private fun relativeTime(epochSeconds: Long): String {
+private fun relativeTime(epochSeconds: Long, context: android.content.Context): String {
     val diff = (System.currentTimeMillis() / 1000L) - epochSeconds
     return when {
-        diff < 60 -> "Just now"
-        diff < 3600 -> "${diff / 60} min ago"
-        diff < 86400 -> "${diff / 3600} hours ago"
-        else -> "${diff / 86400} days ago"
+        diff < 60 -> context.getString(R.string.devices_just_now)
+        diff < 3600 -> context.getString(R.string.devices_min_ago, (diff / 60).toInt())
+        diff < 86400 -> context.getString(R.string.devices_hours_ago, (diff / 3600).toInt())
+        else -> context.getString(R.string.devices_days_ago, (diff / 86400).toInt())
     }
 }
 

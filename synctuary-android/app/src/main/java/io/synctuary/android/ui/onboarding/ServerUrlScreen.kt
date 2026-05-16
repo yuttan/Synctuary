@@ -33,9 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 
 @Composable
 fun ServerUrlScreen(
@@ -56,7 +58,6 @@ fun ServerUrlScreen(
         ) {
             Spacer(Modifier.height(24.dp))
 
-            // Hero glyph
             Box(
                 modifier = Modifier
                     .size(96.dp)
@@ -82,7 +83,7 @@ fun ServerUrlScreen(
 
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "Synctuary",
+                text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -94,18 +95,17 @@ fun ServerUrlScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            // Title + description (left-aligned)
             Column(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = "Connect to Server",
+                    text = stringResource(R.string.onboarding_connect_title),
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "Enter your Synctuary server address on the local network.",
+                    text = stringResource(R.string.onboarding_connect_desc),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -116,7 +116,7 @@ fun ServerUrlScreen(
             OutlinedTextField(
                 value = state.serverUrl,
                 onValueChange = { viewModel.setServerUrl(it) },
-                label = { Text("Server URL") },
+                label = { Text(stringResource(R.string.onboarding_server_url)) },
                 singleLine = true,
                 isError = state.serverUrlError != null,
                 supportingText = state.serverUrlError?.let { err -> { Text(err) } },
@@ -138,7 +138,7 @@ fun ServerUrlScreen(
                     .fillMaxWidth()
                     .height(48.dp),
             ) {
-                Text("Next")
+                Text(stringResource(R.string.onboarding_next))
             }
 
             Spacer(Modifier.height(12.dp))
@@ -151,7 +151,7 @@ fun ServerUrlScreen(
                     contentDescription = null,
                     modifier = Modifier.padding(end = 8.dp),
                 )
-                Text("Scan QR Code")
+                Text(stringResource(R.string.onboarding_scan_qr))
             }
 
             Spacer(Modifier.height(24.dp))

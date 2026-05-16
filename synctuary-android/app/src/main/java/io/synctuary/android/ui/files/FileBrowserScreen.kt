@@ -66,12 +66,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.FabPosition
 import androidx.compose.ui.layout.ContentScale
 import coil.ImageLoader
 import coil.compose.AsyncImage
+import io.synctuary.android.R
 import io.synctuary.android.data.TransferState
 import io.synctuary.android.data.api.dto.FileEntry
 import io.synctuary.android.data.api.dto.ShareEntry
@@ -94,6 +97,7 @@ fun FileBrowserScreen(
     val currentShare by viewModel.currentShare.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var moveEntry by remember { mutableStateOf<FileEntry?>(null) }
+    val context = LocalContext.current
 
     BackHandler(enabled = state.currentPath != "/" || viewModel.isAtSharesRoot || currentShare != null) {
         viewModel.navigateUp()
@@ -104,9 +108,6 @@ fun FileBrowserScreen(
     }
 
     var detailsEntry by remember { mutableStateOf<FileEntry?>(null) }
-
-    // The entry currently requesting "Save As..." — set when the user
-    // taps the action, consumed when the SAF picker returns a URI.
     var saveAsEntry by remember { mutableStateOf<FileEntry?>(null) }
 
     val uploadLauncher = rememberLauncherForActivityResult(
@@ -129,11 +130,11 @@ fun FileBrowserScreen(
     LaunchedEffect(state.downloadState) {
         when (val ds = state.downloadState) {
             is TransferState.Done -> {
-                snackbarHostState.showSnackbar("Downloaded: ${ds.fileName}")
+                snackbarHostState.showSnackbar(context.getString(R.string.files_downloaded, ds.fileName))
                 viewModel.dismissTransferFeedback()
             }
             is TransferState.Failed -> {
-                snackbarHostState.showSnackbar("Download failed: ${ds.message}")
+                snackbarHostState.showSnackbar(context.getString(R.string.files_download_failed, ds.message))
                 viewModel.dismissTransferFeedback()
             }
             else -> {}
@@ -142,11 +143,11 @@ fun FileBrowserScreen(
     LaunchedEffect(state.uploadState) {
         when (val us = state.uploadState) {
             is TransferState.Done -> {
-                snackbarHostState.showSnackbar("Uploaded: ${us.fileName}")
+                snackbarHostState.showSnackbar(context.getString(R.string.files_uploaded, us.fileName))
                 viewModel.dismissTransferFeedback()
             }
             is TransferState.Failed -> {
-                snackbarHostState.showSnackbar("Upload failed: ${us.message}")
+                snackbarHostState.showSnackbar(context.getString(R.string.files_upload_failed, us.message))
                 viewModel.dismissTransferFeedback()
             }
             else -> {}
@@ -161,7 +162,7 @@ fun FileBrowserScreen(
                         TextField(
                             value = state.searchQuery,
                             onValueChange = { viewModel.setSearchQuery(it) },
-                            placeholder = { Text("Search files...") },
+                            placeholder = { Text(stringResource(R.string.files_search_hint)) },
                             singleLine = true,
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
@@ -174,7 +175,7 @@ fun FileBrowserScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = { viewModel.toggleSearch() }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close search")
+                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.files_close_search))
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -183,12 +184,12 @@ fun FileBrowserScreen(
                 )
             } else {
                 TopAppBar(
-                    title = { Text("Synctuary") },
+                    title = { Text(stringResource(R.string.app_name)) },
                     actions = {
                         Box {
                             var sortMenuExpanded by remember { mutableStateOf(false) }
                             IconButton(onClick = { sortMenuExpanded = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.files_sort))
                             }
                             DropdownMenu(
                                 expanded = sortMenuExpanded,
@@ -196,9 +197,9 @@ fun FileBrowserScreen(
                             ) {
                                 SortOption.entries.forEach { option ->
                                     val label = when (option) {
-                                        SortOption.NAME -> "Name"
-                                        SortOption.DATE -> "Date"
-                                        SortOption.SIZE -> "Size"
+                                        SortOption.NAME -> stringResource(R.string.files_sort_name)
+                                        SortOption.DATE -> stringResource(R.string.files_sort_date)
+                                        SortOption.SIZE -> stringResource(R.string.files_sort_size)
                                     }
                                     val arrow = if (state.sortBy == option) {
                                         if (state.sortAscending) " ▲" else " ▼"
@@ -221,7 +222,7 @@ fun FileBrowserScreen(
                             }
                         }
                         IconButton(onClick = { viewModel.toggleSearch() }) {
-                            Icon(Icons.Filled.Search, contentDescription = "Search")
+                            Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.files_search))
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -237,7 +238,7 @@ fun FileBrowserScreen(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = "Upload")
+                    Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.files_upload))
                 }
             }
         },
@@ -290,9 +291,9 @@ fun FileBrowserScreen(
                     ) {
                         Text(
                             text = when {
-                                state.searchActive -> "No matches"
-                                viewModel.isAtSharesRoot -> "No shares configured"
-                                else -> "Empty folder"
+                                state.searchActive -> stringResource(R.string.files_no_matches)
+                                viewModel.isAtSharesRoot -> stringResource(R.string.files_no_shares)
+                                else -> stringResource(R.string.files_empty_folder)
                             },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyLarge,
@@ -393,9 +394,9 @@ private fun TransferBanner(downloadState: TransferState, uploadState: TransferSt
         ?: return
 
     val label = if (downloadState is TransferState.Running) {
-        "Downloading ${running.fileName}…"
+        stringResource(R.string.files_downloading, running.fileName)
     } else {
-        "Uploading ${running.fileName}…"
+        stringResource(R.string.files_uploading, running.fileName)
     }
     val fraction = running.progressFraction
 
@@ -652,4 +653,3 @@ private fun isThumbnailable(mime: String?): Boolean {
         mime.startsWith("image/webp") ||
         mime.startsWith("video/")
 }
-

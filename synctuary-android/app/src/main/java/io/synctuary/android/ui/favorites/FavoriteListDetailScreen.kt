@@ -35,8 +35,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import io.synctuary.android.data.api.dto.FavoriteItemDto
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,8 +59,6 @@ fun FavoriteListDetailScreen(
         viewModel.loadListDetail(listId)
     }
 
-    // Clean up selected list when this composable leaves composition,
-    // rather than in the onClick handler where it races with popBackStack.
     DisposableEffect(Unit) {
         onDispose { viewModel.clearSelectedList() }
     }
@@ -69,7 +69,7 @@ fun FavoriteListDetailScreen(
                 title = { Text(listName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -93,7 +93,7 @@ fun FavoriteListDetailScreen(
                 detail == null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            "Failed to load list",
+                            stringResource(R.string.favorites_detail_failed),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -103,12 +103,12 @@ fun FavoriteListDetailScreen(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                "No items in this list",
+                                stringResource(R.string.favorites_detail_empty),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
-                                "Long-press a file and choose \"Add to Favorites\"",
+                                stringResource(R.string.favorites_detail_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -144,7 +144,6 @@ private fun FavoriteItemRow(
     val dirPath = item.path.substringBeforeLast('/', "/")
     val addedDate = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         .format(Date(item.added_at * 1000))
-    // Guess if the item is a directory by checking for a file extension.
     val isLikelyFolder = '.' !in fileName
 
     Row(
@@ -174,7 +173,7 @@ private fun FavoriteItemRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "$dirPath · added $addedDate",
+                text = "$dirPath · ${stringResource(R.string.favorites_detail_added, addedDate)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -184,7 +183,7 @@ private fun FavoriteItemRow(
         IconButton(onClick = onRemove) {
             Icon(
                 Icons.Filled.Delete,
-                contentDescription = "Remove from list",
+                contentDescription = stringResource(R.string.favorites_detail_remove),
                 tint = MaterialTheme.colorScheme.error,
             )
         }

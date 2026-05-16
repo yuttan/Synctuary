@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -50,6 +51,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import io.synctuary.android.R
 import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,10 +84,10 @@ fun QrScannerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Scan QR Code") },
+                title = { Text(stringResource(R.string.qr_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -129,13 +131,13 @@ fun QrScannerScreen(
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = "Camera permission is required to scan QR codes.",
+                    text = stringResource(R.string.qr_camera_required),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(16.dp))
                 Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                    Text("Grant Permission")
+                    Text(stringResource(R.string.qr_grant_permission))
                 }
             }
         }
@@ -201,7 +203,6 @@ private fun CameraPreviewWithAnalysis(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Viewfinder overlay
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
@@ -217,7 +218,7 @@ private fun CameraPreviewWithAnalysis(
                 )
                 Spacer(Modifier.height(24.dp))
                 Text(
-                    text = "Point camera at the QR code\non the Synctuary admin page",
+                    text = stringResource(R.string.qr_instruction),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White,
                     modifier = Modifier

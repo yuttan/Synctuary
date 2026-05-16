@@ -2,12 +2,14 @@ import { useEffect, useState, useRef } from 'preact/hooks'
 import qrcode from 'qrcode-generator'
 import { api, PairingInfo } from '../api'
 import { showToast } from '../components/toast'
+import { t, useLocale } from '../i18n'
 
 export function Pairing() {
   const [info, setInfo] = useState<PairingInfo | null>(null)
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [loading, setLoading] = useState(true)
   const qrRef = useRef<HTMLDivElement>(null)
+  useLocale()
 
   useEffect(() => {
     api.pairingInfo()
@@ -15,7 +17,7 @@ export function Pairing() {
         setInfo(data)
         setSelectedIdx(0)
       })
-      .catch(() => showToast('Failed to load pairing info', 'error'))
+      .catch(() => showToast(t('pairing.failedLoad'), 'error'))
       .finally(() => setLoading(false))
   }, [])
 
@@ -40,7 +42,7 @@ export function Pairing() {
   if (loading) {
     return (
       <div class="flex items-center justify-center h-64">
-        <div class="text-gray-500">Loading...</div>
+        <div class="text-gray-500">{t('common.loading')}</div>
       </div>
     )
   }
@@ -48,9 +50,9 @@ export function Pairing() {
   if (!info || !info.urls || info.urls.length === 0) {
     return (
       <div>
-        <h2 class="text-2xl font-bold text-white mb-6">Device Pairing</h2>
+        <h2 class="text-2xl font-bold text-white mb-6">{t('pairing.title')}</h2>
         <div class="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
-          <p class="text-gray-400">Could not detect server address. Check network configuration.</p>
+          <p class="text-gray-400">{t('pairing.noAddress')}</p>
         </div>
       </div>
     )
@@ -58,9 +60,9 @@ export function Pairing() {
 
   return (
     <div>
-      <h2 class="text-2xl font-bold text-white mb-2">Device Pairing</h2>
+      <h2 class="text-2xl font-bold text-white mb-2">{t('pairing.title')}</h2>
       <p class="text-gray-400 mb-6">
-        Scan this QR code with the Synctuary app to connect a new device.
+        {t('pairing.subtitle')}
       </p>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -72,7 +74,7 @@ export function Pairing() {
             style={{ width: '320px', height: '320px' }}
           />
           <div class="text-center">
-            <p class="text-sm text-gray-500 mb-1">Server address:</p>
+            <p class="text-sm text-gray-500 mb-1">{t('pairing.serverAddress')}</p>
             <p class="text-brand-400 font-mono text-sm break-all">{selectedUrl}</p>
           </div>
         </div>
@@ -83,10 +85,10 @@ export function Pairing() {
           {info.urls.length > 1 && (
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
               <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">
-                Server Address
+                {t('pairing.serverAddressTitle')}
               </h3>
               <p class="text-sm text-gray-500 mb-3">
-                Multiple network interfaces detected. Select the one your device can reach.
+                {t('pairing.multiInterfaceHint')}
               </p>
               <div class="space-y-2">
                 {info.urls.map((u: string, idx: number) => (
@@ -109,24 +111,24 @@ export function Pairing() {
           {/* Instructions */}
           <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
             <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">
-              How to Pair
+              {t('pairing.howToPair')}
             </h3>
             <ol class="space-y-3 text-sm text-gray-400">
               <li class="flex gap-3">
                 <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600/20 text-brand-400 text-xs font-bold flex items-center justify-center">1</span>
-                <span>Open the Synctuary app on your device</span>
+                <span>{t('pairing.step1')}</span>
               </li>
               <li class="flex gap-3">
                 <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600/20 text-brand-400 text-xs font-bold flex items-center justify-center">2</span>
-                <span>Tap <strong class="text-gray-300">Scan QR Code</strong> on the server connection screen</span>
+                <span>{t('pairing.step2_prefix')}<strong class="text-gray-300">{t('pairing.step2_button')}</strong>{t('pairing.step2_suffix')}</span>
               </li>
               <li class="flex gap-3">
                 <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600/20 text-brand-400 text-xs font-bold flex items-center justify-center">3</span>
-                <span>Point your camera at the QR code above</span>
+                <span>{t('pairing.step3')}</span>
               </li>
               <li class="flex gap-3">
                 <span class="flex-shrink-0 w-6 h-6 rounded-full bg-brand-600/20 text-brand-400 text-xs font-bold flex items-center justify-center">4</span>
-                <span>Pairing completes automatically — your device will appear in the <strong class="text-gray-300">Devices</strong> tab</span>
+                <span>{t('pairing.step4_prefix')}<strong class="text-gray-300">{t('pairing.step4_tab')}</strong>{t('pairing.step4_suffix')}</span>
               </li>
             </ol>
           </div>
@@ -134,16 +136,16 @@ export function Pairing() {
           {/* Manual entry fallback */}
           <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
             <h3 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-2">
-              Manual Entry
+              {t('pairing.manualEntry')}
             </h3>
             <p class="text-sm text-gray-500 mb-3">
-              If you can't scan the QR code, enter this URL in the app manually:
+              {t('pairing.manualHint')}
             </p>
             <div
               class="bg-gray-800 rounded-lg px-4 py-3 font-mono text-sm text-brand-400 break-all cursor-pointer hover:bg-gray-750 transition-colors"
               onClick={() => {
                 navigator.clipboard.writeText(selectedUrl)
-                showToast('URL copied to clipboard', 'success')
+                showToast(t('pairing.urlCopied'), 'success')
               }}
               title="Click to copy"
             >

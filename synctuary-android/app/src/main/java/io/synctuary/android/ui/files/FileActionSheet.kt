@@ -38,8 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import io.synctuary.android.data.api.dto.FileEntry
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,7 +66,6 @@ fun FileActionSheet(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
-        // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -99,13 +100,12 @@ fun FileActionSheet(
             color = MaterialTheme.colorScheme.outlineVariant,
         )
 
-        // Actions
-        SheetAction(Icons.Filled.Download, "Download") { onDownload() }
-        SheetAction(Icons.Filled.SaveAlt, "Save As...") { onSaveAs() }
-        SheetAction(Icons.Filled.StarOutline, "Add to Favorites...") { onAddToFavorites() }
-        SheetAction(Icons.Filled.Edit, "Rename") { showRenameDialog = true }
-        SheetAction(Icons.Filled.SwapHoriz, "Move") { onMove() }
-        SheetAction(Icons.Filled.Info, "Details") { onDetails() }
+        SheetAction(Icons.Filled.Download, stringResource(R.string.action_download)) { onDownload() }
+        SheetAction(Icons.Filled.SaveAlt, stringResource(R.string.action_save_as)) { onSaveAs() }
+        SheetAction(Icons.Filled.StarOutline, stringResource(R.string.action_add_to_favorites)) { onAddToFavorites() }
+        SheetAction(Icons.Filled.Edit, stringResource(R.string.action_rename)) { showRenameDialog = true }
+        SheetAction(Icons.Filled.SwapHoriz, stringResource(R.string.action_move)) { onMove() }
+        SheetAction(Icons.Filled.Info, stringResource(R.string.action_details)) { onDetails() }
 
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 4.dp),
@@ -114,7 +114,7 @@ fun FileActionSheet(
 
         SheetAction(
             icon = Icons.Filled.Delete,
-            label = "Delete",
+            label = stringResource(R.string.action_delete),
             tint = MaterialTheme.colorScheme.error,
             onClick = onDelete,
         )

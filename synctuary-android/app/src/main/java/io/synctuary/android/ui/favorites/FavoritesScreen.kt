@@ -54,8 +54,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import io.synctuary.android.data.api.dto.FavoriteListDto
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,19 +82,19 @@ fun FavoritesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Favorites") },
+                title = { Text(stringResource(R.string.favorites_title)) },
                 actions = {
                     if (state.hiddenUnlocked) {
                         IconButton(onClick = { viewModel.lockHidden() }) {
                             Icon(
                                 Icons.Filled.Visibility,
-                                contentDescription = "Re-lock hidden lists",
+                                contentDescription = stringResource(R.string.favorites_relock_hidden),
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
                     }
                     IconButton(onClick = { showOverflowMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.favorites_more))
                     }
                     DropdownMenu(
                         expanded = showOverflowMenu,
@@ -100,7 +102,7 @@ fun FavoritesScreen(
                     ) {
                         if (!state.hiddenUnlocked) {
                             DropdownMenuItem(
-                                text = { Text("Show hidden lists") },
+                                text = { Text(stringResource(R.string.favorites_show_hidden)) },
                                 leadingIcon = { Icon(Icons.Filled.LockOpen, null) },
                                 onClick = {
                                     showOverflowMenu = false
@@ -109,7 +111,7 @@ fun FavoritesScreen(
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text("New list") },
+                            text = { Text(stringResource(R.string.favorites_new_list)) },
                             leadingIcon = { Icon(Icons.Filled.Add, null) },
                             onClick = {
                                 showOverflowMenu = false
@@ -144,13 +146,13 @@ fun FavoritesScreen(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                "No favorites yet",
+                                stringResource(R.string.favorites_empty),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Spacer(Modifier.height(8.dp))
                             TextButton(onClick = { showCreateDialog = true }) {
-                                Text("Create your first list")
+                                Text(stringResource(R.string.favorites_create_first))
                             }
                         }
                     }
@@ -198,18 +200,18 @@ private fun UnlockBanner(onRelock: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                "Showing hidden lists",
+                stringResource(R.string.favorites_showing_hidden),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                "Auto-locks in 5 min or when app backgrounds",
+                stringResource(R.string.favorites_auto_lock),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
             )
         }
         TextButton(onClick = onRelock) {
-            Text("Re-lock")
+            Text(stringResource(R.string.favorites_relock))
         }
     }
 }
@@ -304,7 +306,7 @@ private fun FavoriteListCard(
                 }
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${list.item_count} items",
+                    text = stringResource(R.string.favorites_items_count, list.item_count),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -314,7 +316,7 @@ private fun FavoriteListCard(
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
                         Icons.Filled.MoreVert,
-                        contentDescription = "List options",
+                        contentDescription = stringResource(R.string.favorites_list_options),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -324,7 +326,10 @@ private fun FavoriteListCard(
                 ) {
                     DropdownMenuItem(
                         text = {
-                            Text(if (list.hidden) "Make visible" else "Hide list")
+                            Text(
+                                if (list.hidden) stringResource(R.string.favorites_make_visible)
+                                else stringResource(R.string.favorites_hide_list),
+                            )
                         },
                         leadingIcon = {
                             Icon(
@@ -339,7 +344,7 @@ private fun FavoriteListCard(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        text = { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) },
                         leadingIcon = {
                             Icon(
                                 Icons.Filled.Delete, null,
@@ -359,19 +364,19 @@ private fun FavoriteListCard(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete \"${list.name}\"?") },
-            text = { Text("The list will be removed. Files are not affected.") },
+            title = { Text(stringResource(R.string.favorites_delete_title, list.name)) },
+            text = { Text(stringResource(R.string.favorites_delete_message)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
                     onDelete()
                 }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel))
                 }
             },
         )
@@ -395,7 +400,7 @@ private fun HiddenBadge() {
         )
         Spacer(Modifier.width(4.dp))
         Text(
-            "Hidden",
+            stringResource(R.string.favorites_hidden_badge),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.tertiary,
         )
@@ -426,7 +431,7 @@ private fun CreateNewCard(onClick: () -> Unit) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "Create new list",
+                stringResource(R.string.favorites_create_new),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -443,12 +448,12 @@ private fun CreateListDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New favorite list") },
+        title = { Text(stringResource(R.string.favorites_new_list_title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("List name") },
+                label = { Text(stringResource(R.string.favorites_list_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -458,11 +463,11 @@ private fun CreateListDialog(
                 onClick = { onConfirm(name.trim(), false) },
                 enabled = name.isNotBlank(),
             ) {
-                Text("Create")
+                Text(stringResource(R.string.create))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 }
