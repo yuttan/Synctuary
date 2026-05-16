@@ -93,7 +93,7 @@ remote_access:
   #   "disabled"  — LAN-only (default). Server binds to addr above.
   #   "ipv6"      — IPv6 direct mode. Clients connect via the server's
   #                 IPv6 Global Unicast Address. TLS is recommended.
-  #   "wireguard" — Built-in WireGuard VPN (Step B, coming soon).
+  #   "wireguard" — Built-in userspace WireGuard VPN.
   #                 Clients tunnel through WireGuard to reach the server.
   mode: "disabled"
 
