@@ -311,9 +311,9 @@ IPAddressAllow=fe80::/10 2001:db8:abcd:1234::/64 ::1
 
 > **Note:** IPv6 direct mode is most useful when your home router has a stable IPv6 prefix (common with /64 SLAAC or DHCPv6-PD deployments). The server will advertise all detected GUAs; clients can choose any reachable one.
 
-### Mode B: WireGuard VPN (coming soon)
+### Mode B: WireGuard VPN
 
-Built-in userspace WireGuard VPN via `golang.zx2c4.com/wireguard` + gvisor netstack. Clients tunnel through WireGuard to reach the server on a private subnet — no router port-forwarding required in many cases (EndHost mode).
+Built-in userspace WireGuard VPN via `golang.zx2c4.com/wireguard` + gvisor netstack. Clients tunnel through WireGuard to reach the server on a private subnet. No kernel module or CAP_NET_ADMIN required.
 
 **Configuration** (`config.yml`):
 
@@ -328,12 +328,21 @@ remote_access:
     persistent_keepalive: 25s
 ```
 
-**What happens at startup (Step B implementation):**
+**What happens at startup:**
 
 1. Server loads or generates WireGuard private key at `private_key_path`
 2. Creates userspace WireGuard listener on UDP `listen_port`
-3. Pairs device public keys during the §4 pairing flow — each paired device gets a WireGuard peer entry
-4. Client receives WireGuard config in the pairing response and establishes the tunnel
+3. Starts a parallel HTTP server on the virtual TUN interface
+4. Peers are managed via the admin UI (Add Peer / Delete Peer)
+
+**Router setup:** Forward UDP 51820 from your public IP to the server's LAN IP.
+
+**Client setup:**
+
+1. Admin UI > Remote Access > "Add Peer" > save the generated config
+2. Import into the official WireGuard app (Android/iOS/Windows/macOS/Linux)
+3. Enable the tunnel
+4. Set the Synctuary app's Remote URL to `https://10.100.0.1:8443`
 
 **Firewall:**
 
@@ -348,7 +357,7 @@ sudo nft add rule inet filter input udp dport 51820 accept
 sudo iptables -A INPUT -p udp --dport 51820 -j ACCEPT
 ```
 
-> **Status:** Config schema and validation are complete. The WireGuard adapter itself (Step B) is the next implementation milestone. Setting `mode: "wireguard"` now passes startup validation; the actual tunnel setup follows in the next release.
+> For a detailed end-to-end walkthrough including Android app configuration, see [`docs/remote-access.md`](../../docs/remote-access.md).
 
 ### Choosing a mode
 
