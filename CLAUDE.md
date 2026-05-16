@@ -357,6 +357,25 @@ no named arguments for later parameters are present. Fix: change call
 sites to use `onProgress = { ... }` named argument instead of trailing
 lambda.
 
+### 6.15 Windows systray requires ICO format, not PNG (Server, 2026-05-17)
+
+`getlantern/systray` on Windows calls `CreateIconFromResourceEx` which only
+accepts ICO (or CUR) format. Passing raw PNG bytes causes `SetIcon` to fail
+with the misleading error: "Unable to set icon: The operation completed
+successfully" (Win32 error code 0, but the icon load itself failed).
+
+Fix: wrap the PNG payload in an ICO container (6-byte ICONDIR header +
+16-byte ICONDIRENTRY + PNG bytes). PNG-in-ICO is supported since Vista.
+
+**This has happened twice.** Prevention:
+- `tray_windows_test.go` validates the output starts with ICO magic
+  (reserved=0, type=1) and explicitly rejects raw PNG (0x89 'P' 'N' 'G')
+- The `generateTrayIcon` function has a comment block explaining why ICO
+  is mandatory
+
+If you ever regenerate the tray icon code, ALWAYS produce ICO format.
+Do NOT pass PNG/BMP/JPEG to `systray.SetIcon()` on Windows.
+
 ## 7. Phase status (what's done, what's next)
 
 ### Done (v0.6 = 2026-05-08)
