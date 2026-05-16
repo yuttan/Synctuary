@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -44,6 +45,9 @@ type Handler struct {
 	listenAddr   string
 	tlsEnabled   bool
 	remoteAccess config.RemoteAccessConfig
+
+	mu          sync.RWMutex
+	pendingMode string // non-empty when the user changed the mode but hasn't restarted yet
 }
 
 // HandlerConfig is the constructor input for the admin handler.
@@ -115,8 +119,9 @@ func (h *Handler) Register(r chi.Router) {
 				// Pairing info (QR code data).
 				r.Get("/pairing-info", h.PairingInfo)
 
-				// Remote access status.
+				// Remote access status + mode toggle.
 				r.Get("/remote-access", h.RemoteAccessStatus)
+				r.Put("/remote-access", h.RemoteAccessUpdate)
 				r.Get("/ipv6/status", h.IPv6Status)
 
 				// WireGuard peer management (only functional when mode == "wireguard").
@@ -622,6 +627,15 @@ func (h *Handler) RemoteAccessStatus(w http.ResponseWriter, r *http.Request) {
 	status := map[string]any{
 		"mode": mode,
 	}
+
+	h.mu.RLock()
+	pending := h.pendingMode
+	h.mu.RUnlock()
+	if pending != "" && pending != mode {
+		status["pending_mode"] = pending
+		status["restart_required"] = true
+	}
+
 	switch mode {
 	case "ipv6":
 		guas := netutil.DetectIPv6GUAs()
@@ -645,6 +659,52 @@ func (h *Handler) RemoteAccessStatus(w http.ResponseWriter, r *http.Request) {
 		status["wireguard"] = wgStatus
 	}
 	writeAdminJSON(w, http.StatusOK, status)
+}
+
+// settingKeyRemoteAccessMode is the server_meta key for the admin-
+// configured remote access mode. When present, it overrides the YAML
+// config on the next server restart.
+const settingKeyRemoteAccessMode = "remote_access.mode"
+
+// validModes lists the accepted values for remote_access.mode.
+var validModes = map[string]bool{
+	"disabled":  true,
+	"ipv6":      true,
+	"wireguard": true,
+}
+
+func (h *Handler) RemoteAccessUpdate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := decodeAdminJSON(r, &body); err != nil {
+		writeAdminError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !validModes[body.Mode] {
+		writeAdminError(w, http.StatusBadRequest, "invalid_mode",
+			"mode must be one of: disabled, ipv6, wireguard")
+		return
+	}
+
+	// Persist the new mode to server_meta so it survives restarts.
+	if err := h.admin.SetSetting(r.Context(), settingKeyRemoteAccessMode, body.Mode); err != nil {
+		h.log.Error("save remote access mode", "err", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal", "failed to save mode")
+		return
+	}
+
+	h.mu.Lock()
+	h.pendingMode = body.Mode
+	h.mu.Unlock()
+
+	// If the new mode matches the running mode, no restart is needed.
+	restartRequired := body.Mode != h.remoteAccess.Mode
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"ok":               true,
+		"mode":             body.Mode,
+		"restart_required": restartRequired,
+	})
 }
 
 func (h *Handler) IPv6Status(w http.ResponseWriter, r *http.Request) {
