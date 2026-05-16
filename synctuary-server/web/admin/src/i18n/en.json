@@ -133,9 +133,22 @@
   "vpn": {
     "title": "Remote Access",
     "mode": "Mode:",
+    "modeSelector": {
+      "label": "Remote Access Mode",
+      "disabled": "Disabled",
+      "disabledDesc": "LAN only",
+      "ipv6": "IPv6 Direct",
+      "ipv6Desc": "Connect via IPv6 GUA",
+      "wireguard": "WireGuard VPN",
+      "wireguardDesc": "Built-in VPN tunnel",
+      "saving": "Saving...",
+      "saved": "Mode updated",
+      "restartBanner": "Server restart required for the change to take effect.",
+      "pendingMode": "Pending:"
+    },
     "disabled": {
       "title": "Remote Access Disabled",
-      "description": "The server is currently accessible only on the local network. To enable remote access, set {configKey} in your config file to {ipv6} or {wireguard}, then restart the server.",
+      "description": "The server is currently accessible only on the local network. To enable remote access, select a mode above and restart the server.",
       "ipv6Title": "IPv6 Direct",
       "ipv6Desc": "Connect via the server's IPv6 Global Unicast Address. Requires IPv6 connectivity and TLS.",
       "wgTitle": "WireGuard VPN",

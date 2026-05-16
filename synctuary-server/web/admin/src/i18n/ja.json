@@ -133,9 +133,22 @@
   "vpn": {
     "title": "リモートアクセス",
     "mode": "モード:",
+    "modeSelector": {
+      "label": "リモートアクセスモード",
+      "disabled": "無効",
+      "disabledDesc": "LANのみ",
+      "ipv6": "IPv6 直接接続",
+      "ipv6Desc": "IPv6 GUA経由で接続",
+      "wireguard": "WireGuard VPN",
+      "wireguardDesc": "内蔵VPNトンネル",
+      "saving": "保存中...",
+      "saved": "モードを更新しました",
+      "restartBanner": "変更を有効にするにはサーバーの再起動が必要です。",
+      "pendingMode": "保留中:"
+    },
     "disabled": {
       "title": "リモートアクセス無効",
-      "description": "現在、サーバーはローカルネットワーク上でのみアクセス可能です。リモートアクセスを有効にするには、設定ファイルの {configKey} を {ipv6} または {wireguard} に設定し、サーバーを再起動してください。",
+      "description": "現在、サーバーはローカルネットワーク上でのみアクセス可能です。リモートアクセスを有効にするには、上のモードを選択してサーバーを再起動してください。",
       "ipv6Title": "IPv6 直接接続",
       "ipv6Desc": "サーバーのIPv6グローバルユニキャストアドレス経由で接続します。IPv6接続とTLSが必要です。",
       "wgTitle": "WireGuard VPN",

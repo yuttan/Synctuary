@@ -2,38 +2,134 @@ import { useState, useEffect } from 'preact/hooks'
 import { api, RemoteAccessStatus, WGPeer, WGAddPeerResponse } from '../api'
 import { t, useLocale } from '../i18n'
 
+const MODES = ['disabled', 'ipv6', 'wireguard'] as const
+
 export function RemoteAccess() {
   const [status, setStatus] = useState<RemoteAccessStatus | null>(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [restartRequired, setRestartRequired] = useState(false)
+  const [pendingMode, setPendingMode] = useState<string | null>(null)
   useLocale()
 
   async function load() {
     try {
       const res = await api.remoteAccess()
       setStatus(res)
+      if (res.restart_required && res.pending_mode) {
+        setRestartRequired(true)
+        setPendingMode(res.pending_mode)
+      }
     } catch { /* ignore */ }
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
+  async function handleModeChange(mode: string) {
+    setSaving(true)
+    try {
+      const res = await api.updateRemoteAccess(mode)
+      if (res.restart_required) {
+        setRestartRequired(true)
+        setPendingMode(mode)
+      } else {
+        setRestartRequired(false)
+        setPendingMode(null)
+      }
+      // Reload status
+      const updated = await api.remoteAccess()
+      setStatus(updated)
+    } catch { /* ignore */ }
+    setSaving(false)
+  }
+
   if (loading) return <div class="text-gray-400">{t('common.loading')}</div>
   if (!status) return <div class="text-red-400">{t('vpn.wg.failedLoad')}</div>
 
   return (
     <div>
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h2 class="text-2xl font-bold text-white">{t('vpn.title')}</h2>
-          <p class="text-sm text-gray-400 mt-1">
-            {t('vpn.mode')} <span class="text-brand-400 font-mono">{status.mode}</span>
-          </p>
-        </div>
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold text-white">{t('vpn.title')}</h2>
+        <p class="text-sm text-gray-400 mt-1">
+          {t('vpn.mode')} <span class="text-brand-400 font-mono">{status.mode}</span>
+          {pendingMode && pendingMode !== status.mode && (
+            <span class="text-yellow-400 ml-2">
+              ({t('vpn.modeSelector.pendingMode')} <span class="font-mono">{pendingMode}</span>)
+            </span>
+          )}
+        </p>
       </div>
 
-      {status.mode === 'disabled' && <DisabledSection />}
-      {status.mode === 'ipv6' && <IPv6Section />}
-      {status.mode === 'wireguard' && <WireGuardSection status={status} />}
+      {/* Restart required banner */}
+      {restartRequired && (
+        <div class="mb-6 bg-yellow-900/30 border border-yellow-700/50 rounded-xl p-4 flex items-center gap-3">
+          <svg class="w-5 h-5 text-yellow-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+          <p class="text-sm text-yellow-300">{t('vpn.modeSelector.restartBanner')}</p>
+        </div>
+      )}
+
+      {/* Mode selector */}
+      <ModeSelector
+        currentMode={status.mode}
+        pendingMode={pendingMode}
+        saving={saving}
+        onSelect={handleModeChange}
+      />
+
+      <div class="mt-6">
+        {status.mode === 'disabled' && <DisabledSection />}
+        {status.mode === 'ipv6' && <IPv6Section />}
+        {status.mode === 'wireguard' && <WireGuardSection status={status} />}
+      </div>
+    </div>
+  )
+}
+
+function ModeSelector({ currentMode, pendingMode, saving, onSelect }: {
+  currentMode: string
+  pendingMode: string | null
+  saving: boolean
+  onSelect: (mode: string) => void
+}) {
+  const effectiveMode = pendingMode || currentMode
+  const modeLabels: Record<string, { label: string; desc: string }> = {
+    disabled:  { label: t('vpn.modeSelector.disabled'),  desc: t('vpn.modeSelector.disabledDesc') },
+    ipv6:      { label: t('vpn.modeSelector.ipv6'),      desc: t('vpn.modeSelector.ipv6Desc') },
+    wireguard: { label: t('vpn.modeSelector.wireguard'), desc: t('vpn.modeSelector.wireguardDesc') },
+  }
+
+  return (
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <label class="text-xs text-gray-500 uppercase tracking-wide mb-3 block">
+        {t('vpn.modeSelector.label')}
+      </label>
+      <div class="grid grid-cols-3 gap-3">
+        {MODES.map(mode => {
+          const selected = mode === effectiveMode
+          return (
+            <button
+              key={mode}
+              disabled={saving}
+              onClick={() => onSelect(mode)}
+              class={`rounded-lg p-3 text-left border transition-colors ${
+                selected
+                  ? 'border-brand-500 bg-brand-900/30'
+                  : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'
+              } ${saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <div class={`text-sm font-medium ${selected ? 'text-brand-400' : 'text-white'}`}>
+                {modeLabels[mode]?.label || mode}
+              </div>
+              <div class="text-xs text-gray-500 mt-0.5">
+                {modeLabels[mode]?.desc || ''}
+              </div>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -43,11 +139,7 @@ function DisabledSection() {
     <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
       <h3 class="text-lg font-semibold text-white mb-3">{t('vpn.disabled.title')}</h3>
       <p class="text-gray-400 text-sm leading-relaxed">
-        {t('vpn.disabled.description', {
-          configKey: 'remote_access.mode',
-          ipv6: '"ipv6"',
-          wireguard: '"wireguard"',
-        })}
+        {t('vpn.disabled.description')}
       </p>
       <div class="mt-4 grid grid-cols-2 gap-4">
         <div class="bg-gray-800/50 rounded-lg p-4">

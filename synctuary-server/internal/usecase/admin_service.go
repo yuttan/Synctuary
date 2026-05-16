@@ -186,6 +186,34 @@ func (s *AdminService) JWTSecret() []byte {
 	return s.jwtSecret
 }
 
+// GetSetting reads a generic key-value setting from server_meta.
+// Returns empty string if the key does not exist.
+func (s *AdminService) GetSetting(ctx context.Context, key string) (string, error) {
+	var val []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT value FROM server_meta WHERE key = ?`, "setting."+key,
+	).Scan(&val)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("admin_service: get setting %q: %w", key, err)
+	}
+	return string(val), nil
+}
+
+// SetSetting writes a generic key-value setting to server_meta.
+func (s *AdminService) SetSetting(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO server_meta (key, value) VALUES (?, ?)`,
+		"setting."+key, []byte(value),
+	)
+	if err != nil {
+		return fmt.Errorf("admin_service: set setting %q: %w", key, err)
+	}
+	return nil
+}
+
 // loadOrInitMeta loads a value from server_meta by key, or generates
 // and stores `n` random bytes if the key doesn't exist.
 func loadOrInitMeta(db *sql.DB, key string, n int) ([]byte, error) {

@@ -51,6 +51,7 @@ export const api = {
 
   // Remote access
   remoteAccess: () => request<RemoteAccessStatus>('GET', '/remote-access'),
+  updateRemoteAccess: (mode: string) => request<RemoteAccessUpdateResponse>('PUT', '/remote-access', { mode }),
   ipv6Status: () => request<IPv6Status>('GET', '/ipv6/status'),
 
   // WireGuard peers
@@ -104,6 +105,8 @@ export interface PairingInfo {
 
 export interface RemoteAccessStatus {
   mode: string
+  pending_mode?: string
+  restart_required?: boolean
   ipv6?: {
     guas: string[]
     advertised_addr: string
@@ -118,6 +121,12 @@ export interface RemoteAccessStatus {
     server_public_key?: string
     server_ip?: string
   }
+}
+
+export interface RemoteAccessUpdateResponse {
+  ok: boolean
+  mode: string
+  restart_required: boolean
 }
 
 export interface IPv6Status {
