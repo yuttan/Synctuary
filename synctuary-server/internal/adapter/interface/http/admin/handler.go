@@ -75,10 +75,10 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		return nil, fmt.Errorf("admin: missing logger")
 	}
 	return &Handler{
-		admin:        cfg.Admin,
-		shares:       cfg.Shares,
-		devices:      cfg.Devices,
-		wg:           cfg.WG,
+		admin:          cfg.Admin,
+		shares:         cfg.Shares,
+		devices:        cfg.Devices,
+		wg:             cfg.WG,
 		log:            cfg.Logger,
 		configToken:    cfg.ConfigToken,
 		masterKey:      cfg.MasterKey,
