@@ -12,10 +12,26 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/synctuary/synctuary-server/internal/domain/file"
 )
+
+// chunkBufSize is the per-read buffer for streaming upload chunks to
+// disk. Kept aligned with the download streamBufSize (256 KiB) so both
+// paths have similar syscall overhead.
+const chunkBufSize = 256 << 10 // 256 KiB
+
+// chunkBufPool recycles write buffers across concurrent upload sessions.
+// Stores *[]byte to avoid the interface-boxing allocation (SA6002).
+var chunkBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, chunkBufSize)
+		return &b
+	},
+}
 
 // UploadSessionStore backs file.UploadSession with a SQLite row
 // (source of truth for session state) plus a staging file on disk
@@ -156,8 +172,8 @@ func (s *UploadSessionStore) Init(ctx context.Context, params *file.UploadInitPa
 // file and advances uploaded_bytes. When the write completes the
 // session (end == size-1), it hashes, verifies, and commits the
 // final file via atomic rename.
-func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, rangeStart int64, data []byte) error {
-	if int64(len(data)) > s.chunkSizeMax {
+func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, rangeStart int64, body io.Reader, chunkSize int64) error {
+	if chunkSize > s.chunkSizeMax {
 		return file.ErrChunkTooLarge
 	}
 
@@ -183,9 +199,11 @@ func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, r
 		return file.ErrUploadNotFound
 	}
 
-	end := rangeStart + int64(len(data)) - 1
+	end := rangeStart + chunkSize - 1
 	// Idempotent retry: entire range sits in already-accepted bytes.
-	if len(data) > 0 && end < uploaded {
+	if chunkSize > 0 && end < uploaded {
+		// Drain the body so the HTTP server can reuse the connection.
+		_, _ = io.Copy(io.Discard, body)
 		return nil
 	}
 	// Straddle: partial overlap of accepted boundary.
@@ -201,17 +219,42 @@ func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, r
 		return file.ErrRangeMismatch
 	}
 
-	// Write to staging at the exact offset.
+	// Stream body to staging in pooled 256 KiB buffers instead of
+	// reading the entire chunk (up to 32 MiB) into memory.
 	fh, err := os.OpenFile(stagingPath, os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("db: AppendChunk: open staging: %w", err)
 	}
-	if _, err := fh.WriteAt(data, rangeStart); err != nil {
-		_ = fh.Close()
-		if isNoSpaceErr(err) {
-			return file.ErrInsufficientStorage
+	bp := chunkBufPool.Get().(*[]byte)
+	defer chunkBufPool.Put(bp)
+	buf := *bp
+
+	offset := rangeStart
+	written := int64(0)
+	for written < chunkSize {
+		n, readErr := body.Read(buf)
+		if n > 0 {
+			if _, wErr := fh.WriteAt(buf[:n], offset); wErr != nil {
+				_ = fh.Close()
+				if isNoSpaceErr(wErr) {
+					return file.ErrInsufficientStorage
+				}
+				return fmt.Errorf("db: AppendChunk: writeAt: %w", wErr)
+			}
+			offset += int64(n)
+			written += int64(n)
 		}
-		return fmt.Errorf("db: AppendChunk: writeAt: %w", err)
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			_ = fh.Close()
+			return fmt.Errorf("db: AppendChunk: read body: %w", readErr)
+		}
+	}
+	if written != chunkSize {
+		_ = fh.Close()
+		return file.ErrRangeMismatch
 	}
 	if err := fh.Sync(); err != nil {
 		_ = fh.Close()
@@ -221,7 +264,7 @@ func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, r
 		return fmt.Errorf("db: AppendChunk: close: %w", err)
 	}
 
-	newUploaded := uploaded + int64(len(data))
+	newUploaded := uploaded + chunkSize
 	isFinal := newUploaded == size
 
 	now := nowUnix(ctx)
@@ -446,12 +489,25 @@ func nowUnix(ctx context.Context) int64 {
 	return time.Now().Unix()
 }
 
-// isNoSpaceErr portably detects disk-full conditions.
+// isNoSpaceErr portably detects disk-full conditions across POSIX and
+// Windows by unwrapping to syscall.Errno, with a string-match fallback
+// for edge cases (e.g. localized Windows error messages or wrapped
+// third-party errors).
 func isNoSpaceErr(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Primary: check the underlying errno via errors.As.
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case syscall.ENOSPC: // POSIX: "no space left on device" (28)
+			return true
+		case 39, 112: // Windows: ERROR_HANDLE_DISK_FULL (39), ERROR_DISK_FULL (112)
+			return true
+		}
+	}
+	// Fallback: string match for wrapped or localized error messages.
 	msg := err.Error()
-	// POSIX: "no space left on device"; Windows: "There is not enough space".
 	return strings.Contains(msg, "no space left") || strings.Contains(msg, "not enough space")
 }

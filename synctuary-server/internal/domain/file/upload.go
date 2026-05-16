@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"errors"
+	"io"
 )
 
 // Sentinel errors returned by UploadSession. Callers MUST match with
@@ -146,11 +147,15 @@ type UploadSession interface {
 	// avoid the race described in arch v3 §4.2.
 	Init(ctx context.Context, params *UploadInitParams) (*UploadInitResult, error)
 
-	// AppendChunk writes `data` at byte offset `rangeStart`.
+	// AppendChunk streams the request body into the staging file at
+	// byte offset `rangeStart`. The caller supplies the body as an
+	// io.Reader and the expected byte count (`chunkSize`); the
+	// implementation reads in pooled buffers to avoid holding the
+	// entire chunk in memory.
 	//
 	// Contract:
 	//   - rangeStart == session.uploaded_bytes on the happy path.
-	//   - If the entire [rangeStart, rangeStart+len(data)-1] range
+	//   - If the entire [rangeStart, rangeStart+chunkSize-1] range
 	//     lies strictly within already-accepted bytes, the call is
 	//     an idempotent no-op and returns nil (§6.3.2 idempotent
 	//     retry). Implementations MUST NOT re-hash or re-write.
@@ -161,7 +166,7 @@ type UploadSession interface {
 	//     hashes, compares to the declared sha256, atomically
 	//     renames staging → path, marks completed=1. Hash failure
 	//     is ErrHashMismatch and the session is invalidated.
-	AppendChunk(ctx context.Context, uploadID string, rangeStart int64, data []byte) error
+	AppendChunk(ctx context.Context, uploadID string, rangeStart int64, body io.Reader, chunkSize int64) error
 
 	// Progress returns the resume-poll response fields (§6.3.3).
 	// uploadedBytes is the authoritative byte count after any

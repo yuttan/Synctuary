@@ -19,6 +19,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -41,6 +42,22 @@ var b64url = base64.RawURLEncoding
 // maxJSONBody caps request bodies for JSON endpoints. Upload chunks
 // use their own raw-body path and bypass this limit.
 const maxJSONBody = 1 << 20 // 1 MiB
+
+// streamBufSize is the I/O copy buffer for file downloads and thumbnail
+// streaming. Go's io.Copy default is 32 KiB, which incurs excessive
+// syscall overhead for large LAN transfers. 256 KiB strikes a good
+// balance between memory pressure and throughput.
+const streamBufSize = 256 << 10 // 256 KiB
+
+// streamBufPool recycles download buffers so a burst of concurrent
+// streams doesn't hammer the allocator. We store *[]byte to avoid the
+// interface-boxing allocation flagged by staticcheck SA6002.
+var streamBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, streamBufSize)
+		return &b
+	},
+}
 
 // Handler is the chi-compatible aggregate of endpoint handlers. Each
 // method binds to a route in Register.
@@ -437,7 +454,9 @@ func (h *Handler) FilesContent(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, meta.Size))
 		w.WriteHeader(http.StatusPartialContent)
 	}
-	if _, err := io.Copy(w, rc); err != nil {
+	bp := streamBufPool.Get().(*[]byte)
+	defer streamBufPool.Put(bp)
+	if _, err := io.CopyBuffer(w, rc, *bp); err != nil {
 		h.log.Debug("content stream", slog.String("err", err.Error()))
 	}
 }
@@ -618,17 +637,13 @@ func (h *Handler) UploadChunk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	expected := end - start + 1
-	data, err := io.ReadAll(io.LimitReader(r.Body, expected+1))
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, "bad_request", "read body failed")
-		return
-	}
-	if int64(len(data)) != expected {
-		WriteError(w, http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "body length does not match Content-Range")
-		return
-	}
 
-	if err := h.files.AppendChunk(r.Context(), uploadID, start, data); err != nil {
+	// Stream the body directly to the upload session store instead
+	// of buffering the entire chunk (up to 32 MiB) in memory.
+	// LimitReader enforces the declared Content-Range size.
+	body := io.LimitReader(r.Body, expected)
+
+	if err := h.files.AppendChunk(r.Context(), uploadID, start, body, expected); err != nil {
 		switch {
 		case errors.Is(err, dfile.ErrUploadNotFound):
 			WriteError(w, http.StatusNotFound, "upload_not_found", "upload id not found")
@@ -678,24 +693,24 @@ func (h *Handler) UploadChunk(w http.ResponseWriter, r *http.Request) {
 		// inferable from "did this chunk reach `total`?".
 		h.log.Warn("post-chunk progress fallback", slog.String("err", err.Error()), slog.String("upload_id", uploadID))
 		isFinal := end+1 == total
-		body := map[string]any{
+		fallback := map[string]any{
 			"uploaded_bytes": end + 1,
 			"complete":       isFinal,
 		}
 		if isFinal {
-			body["sha256_verified"] = true
+			fallback["sha256_verified"] = true
 		}
-		WriteJSON(w, http.StatusOK, body)
+		WriteJSON(w, http.StatusOK, fallback)
 		return
 	}
-	body := map[string]any{
+	resp := map[string]any{
 		"uploaded_bytes": uploaded,
 		"complete":       completed,
 	}
 	if completed {
-		body["sha256_verified"] = true
+		resp["sha256_verified"] = true
 	}
-	WriteJSON(w, http.StatusOK, body)
+	WriteJSON(w, http.StatusOK, resp)
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -755,10 +770,6 @@ func (h *Handler) FilesDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	files := h.files.WithStorage(storage)
 	if err := files.Delete(r.Context(), p, recursive); err != nil {
-		if errors.Is(err, dfile.ErrDirectoryNotEmpty) {
-			WriteError(w, http.StatusConflict, "directory_not_empty", "directory is not empty; pass recursive=true")
-			return
-		}
 		h.writeFileErr(w, err, "delete")
 		return
 	}
@@ -1190,6 +1201,8 @@ func (h *Handler) writeFileErr(w http.ResponseWriter, err error, op string) {
 		WriteError(w, http.StatusNotFound, "not_found", "resource does not exist")
 	case errors.Is(err, dfile.ErrFileExists):
 		WriteError(w, http.StatusConflict, "file_exists", "target already exists")
+	case errors.Is(err, dfile.ErrDirectoryNotEmpty):
+		WriteError(w, http.StatusConflict, "directory_not_empty", "directory is not empty; pass recursive=true")
 	default:
 		h.log.Error("file op", slog.String("op", op), slog.String("err", err.Error()))
 		WriteError(w, http.StatusInternalServerError, "internal_error", op+" failed")
