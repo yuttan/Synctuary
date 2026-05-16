@@ -33,6 +33,22 @@ openssl req -x509 \
     -addext "subjectAltName=DNS:synctuary.local,DNS:synctuary,IP:192.168.1.10,IP:127.0.0.1"
 ```
 
+### With IPv6 remote access (GUA)
+
+If you use `remote_access.mode: ipv6`, add your server's IPv6 Global Unicast Address to the SAN list. The Synctuary Android app uses fingerprint-based trust (PROTOCOL section 3.3), so SAN matching is not strictly required for the app — but other clients (browsers, curl) do check SANs.
+
+```sh
+# Replace 2001:db8::1 with your actual GUA (check `ip -6 addr show scope global`)
+openssl req -x509 \
+    -newkey rsa:4096 -keyout server.key \
+    -out server.crt \
+    -sha256 -days 3650 -nodes \
+    -subj "/CN=synctuary.local" \
+    -addext "subjectAltName=DNS:synctuary.local,DNS:synctuary,IP:192.168.1.10,IP:2001:db8::1,IP:127.0.0.1,IP:::1"
+```
+
+Note: IPv6 SANs use the same `IP:` prefix as IPv4 — no brackets needed in the openssl command. The `::1` entry is the IPv6 loopback for local testing.
+
 Verify:
 
 ```sh
