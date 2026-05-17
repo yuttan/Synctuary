@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -318,7 +319,7 @@ func (h *Handler) PairRegister(w http.ResponseWriter, r *http.Request) {
 // resolveShareStorage returns a share-scoped FileStorage for the
 // request. If ?share= is present, its HostPath is used as the
 // filesystem root; otherwise the default share is used.
-func (h *Handler) resolveShareStorage(w http.ResponseWriter, r *http.Request) (dfile.FileStorage, bool) {
+func (h *Handler) resolveShareStorage(w http.ResponseWriter, r *http.Request) (dfile.FileStorage, string, bool) {
 	ctx := r.Context()
 	shareParam := r.URL.Query().Get("share")
 
@@ -330,26 +331,26 @@ func (h *Handler) resolveShareStorage(w http.ResponseWriter, r *http.Request) (d
 		id, derr := b64url.DecodeString(shareParam)
 		if derr != nil || len(id) != 16 {
 			WriteError(w, http.StatusBadRequest, "bad_request", "share must be base64url 16-byte id")
-			return nil, false
+			return nil, "", false
 		}
 		s, err = h.shares.GetByID(ctx, id)
 	}
 	if err != nil {
 		WriteError(w, http.StatusNotFound, "share_not_found", "share does not exist")
-		return nil, false
+		return nil, "", false
 	}
 
 	if h.baseStorage == nil {
-		return nil, false
+		return nil, "", false
 	}
 
 	scoped, err := h.baseStorage.ForRoot(s.HostPath)
 	if err != nil {
 		h.log.Error("share storage", slog.String("err", err.Error()), slog.String("host_path", s.HostPath))
 		WriteError(w, http.StatusInternalServerError, "internal_error", "share storage init failed")
-		return nil, false
+		return nil, "", false
 	}
-	return scoped, true
+	return scoped, s.HostPath, true
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -363,11 +364,11 @@ func (h *Handler) FilesList(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := parseBool(r.URL.Query().Get("hash"), false)
 
-	storage, ok := h.resolveShareStorage(w, r)
+	storage, hostPath, ok := h.resolveShareStorage(w, r)
 	if !ok {
 		return
 	}
-	files := h.files.WithStorage(storage)
+	files := h.files.WithStorage(storage, hostPath)
 	result, err := files.List(r.Context(), p, hash)
 	if err != nil {
 		h.writeFileErr(w, err, "list")
@@ -413,11 +414,11 @@ func (h *Handler) FilesContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storage, ok := h.resolveShareStorage(w, r)
+	storage, hostPath, ok := h.resolveShareStorage(w, r)
 	if !ok {
 		return
 	}
-	files := h.files.WithStorage(storage)
+	files := h.files.WithStorage(storage, hostPath)
 	meta, err := files.Stat(r.Context(), p)
 	if err != nil {
 		h.writeFileErr(w, err, "stat")
@@ -447,6 +448,7 @@ func (h *Handler) FilesContent(w http.ResponseWriter, r *http.Request) {
 		mime = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, path.Base(p)))
 	w.Header().Set("Accept-Ranges", "bytes")
 	if len(meta.SHA256) == 32 {
 		w.Header().Set("ETag", `"`+hex.EncodeToString(meta.SHA256)+`"`)
@@ -460,10 +462,27 @@ func (h *Handler) FilesContent(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, meta.Size))
 		w.WriteHeader(http.StatusPartialContent)
 	}
+	flusher, canFlush := w.(http.Flusher)
 	bp := streamBufPool.Get().(*[]byte)
 	defer streamBufPool.Put(bp)
-	if _, err := io.CopyBuffer(w, rc, *bp); err != nil {
-		h.log.Debug("content stream", slog.String("err", err.Error()))
+	buf := *bp
+	for {
+		n, readErr := rc.Read(buf)
+		if n > 0 {
+			if _, wErr := w.Write(buf[:n]); wErr != nil {
+				h.log.Debug("content stream write", slog.String("err", wErr.Error()))
+				break
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				h.log.Debug("content stream read", slog.String("err", readErr.Error()))
+			}
+			break
+		}
 	}
 }
 
@@ -489,7 +508,7 @@ func (h *Handler) FilesThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storage, ok := h.resolveShareStorage(w, r)
+	storage, _, ok := h.resolveShareStorage(w, r)
 	if !ok {
 		return
 	}
@@ -551,11 +570,11 @@ func (h *Handler) UploadInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storage, ok := h.resolveShareStorage(w, r)
+	storage, hostPath, ok := h.resolveShareStorage(w, r)
 	if !ok {
 		return
 	}
-	files := h.files.WithStorage(storage)
+	files := h.files.WithStorage(storage, hostPath)
 
 	params := &dfile.UploadInitParams{
 		Path:      p,
@@ -588,6 +607,9 @@ func (h *Handler) UploadInit(w http.ResponseWriter, r *http.Request) {
 		if aerr != nil || info == nil {
 			WriteError(w, http.StatusConflict, "upload_in_progress", "another upload is active but details unavailable")
 			return
+		}
+		if ra := info.ExpiresAt - time.Now().Unix(); ra > 0 {
+			w.Header().Set("Retry-After", strconv.FormatInt(ra, 10))
 		}
 		WriteJSON(w, http.StatusConflict, map[string]any{
 			"error": map[string]any{
@@ -770,11 +792,11 @@ func (h *Handler) FilesDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	recursive := parseBool(r.URL.Query().Get("recursive"), false)
 
-	storage, ok := h.resolveShareStorage(w, r)
+	storage, hostPath, ok := h.resolveShareStorage(w, r)
 	if !ok {
 		return
 	}
-	files := h.files.WithStorage(storage)
+	files := h.files.WithStorage(storage, hostPath)
 	if err := files.Delete(r.Context(), p, recursive); err != nil {
 		h.writeFileErr(w, err, "delete")
 		return
@@ -810,11 +832,11 @@ func (h *Handler) FilesMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storage, ok := h.resolveShareStorage(w, r)
+	storage, hostPath, ok := h.resolveShareStorage(w, r)
 	if !ok {
 		return
 	}
-	files := h.files.WithStorage(storage)
+	files := h.files.WithStorage(storage, hostPath)
 	if err := files.Move(r.Context(), from, to, body.Overwrite); err != nil {
 		switch {
 		case errors.Is(err, dfile.ErrFileNotFound):

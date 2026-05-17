@@ -85,6 +85,21 @@ func NewUploadSessionStore(
 
 var _ file.UploadSession = (*UploadSessionStore)(nil)
 
+func (s *UploadSessionStore) ForRoot(root string) file.UploadSession {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		abs = root
+	}
+	return &UploadSessionStore{
+		db:           s.db,
+		root:         abs,
+		staging:      s.staging,
+		chunkSize:    s.chunkSize,
+		chunkSizeMax: s.chunkSizeMax,
+		sessionTTL:   s.sessionTTL,
+	}
+}
+
 // Init creates a session row (and empty staging file) atomically.
 // Single-active-session-per-path enforcement is the partial UNIQUE
 // INDEX on (path) WHERE completed = 0 from migration 002. Expired
@@ -132,11 +147,11 @@ func (s *UploadSessionStore) Init(ctx context.Context, params *file.UploadInitPa
 		INSERT INTO uploads (
 			upload_id, path, size, sha256_expected, uploaded_bytes,
 			staging_path, device_id, overwrite, completed,
-			created_at, last_write_at, expires_at
-		) VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)
+			created_at, last_write_at, expires_at, root_path
+		) VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?, ?)
 	`,
 		uploadID, params.Path, params.Size, params.SHA256, stagingPath,
-		params.DeviceID, boolToInt(params.Overwrite), now, now, expiresAt,
+		params.DeviceID, boolToInt(params.Overwrite), now, now, expiresAt, s.root,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -184,11 +199,12 @@ func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, r
 		uploaded    int64
 		stagingPath string
 		completed   int64
+		rootPath    string
 	)
 	err := s.db.QueryRowContext(ctx, `
-		SELECT path, size, sha256_expected, uploaded_bytes, staging_path, completed
+		SELECT path, size, sha256_expected, uploaded_bytes, staging_path, completed, root_path
 		  FROM uploads WHERE upload_id = ?
-	`, uploadID).Scan(&path, &size, &shaExpected, &uploaded, &stagingPath, &completed)
+	`, uploadID).Scan(&path, &size, &shaExpected, &uploaded, &stagingPath, &completed, &rootPath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return file.ErrUploadNotFound
 	}
@@ -270,8 +286,8 @@ func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, r
 	now := nowUnix(ctx)
 	if !isFinal {
 		if _, err := s.db.ExecContext(ctx,
-			`UPDATE uploads SET uploaded_bytes = ?, last_write_at = ? WHERE upload_id = ?`,
-			newUploaded, now, uploadID,
+			`UPDATE uploads SET uploaded_bytes = ?, last_write_at = ?, expires_at = ? WHERE upload_id = ?`,
+			newUploaded, now, now+s.sessionTTL, uploadID,
 		); err != nil {
 			return fmt.Errorf("db: AppendChunk: update progress: %w", err)
 		}
@@ -290,7 +306,13 @@ func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, r
 	}
 
 	// Atomic rename staging → target path inside storage root.
-	target, err := s.resolveRoot(path)
+	// Use the root_path persisted at Init time (share-scoped),
+	// not s.root (which may be the global default).
+	effectiveRoot := rootPath
+	if effectiveRoot == "" {
+		effectiveRoot = s.root
+	}
+	target, err := resolveRootAbs(effectiveRoot, path)
 	if err != nil {
 		return err
 	}
@@ -416,9 +438,16 @@ func (s *UploadSessionStore) CollectExpired(ctx context.Context, now int64) (int
 // resolveRoot maps a PROTOCOL §1 user path into an absolute path under
 // the configured storage root, rejecting traversal attempts.
 func (s *UploadSessionStore) resolveRoot(userPath string) (string, error) {
+	return resolveRootAbs(s.root, userPath)
+}
+
+// resolveRootAbs is the stateless form of resolveRoot that accepts an
+// explicit root directory. Used by AppendChunk to honour the per-session
+// root_path stored at Init time.
+func resolveRootAbs(root, userPath string) (string, error) {
 	clean := filepath.Clean("/" + strings.TrimPrefix(userPath, "/"))
-	abs := filepath.Join(s.root, clean)
-	rel, err := filepath.Rel(s.root, abs)
+	abs := filepath.Join(root, clean)
+	rel, err := filepath.Rel(root, abs)
 	if err != nil || strings.HasPrefix(rel, "..") || rel == ".." {
 		return "", fmt.Errorf("db: path escapes root: %q", userPath)
 	}

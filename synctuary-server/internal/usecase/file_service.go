@@ -77,13 +77,14 @@ func WithLogger(l *slog.Logger) FileServiceOption {
 }
 
 // WithStorage returns a shallow copy of this FileService that uses a
-// different FileStorage. All other dependencies (repo, uploads, config)
-// are shared. Used to scope file operations to a share's HostPath.
-func (s *FileService) WithStorage(storage file.FileStorage) *FileService {
+// different FileStorage and scopes uploads to the given root path.
+// Used to scope all file operations (including uploads) to a share's
+// HostPath.
+func (s *FileService) WithStorage(storage file.FileStorage, root string) *FileService {
 	return &FileService{
 		repo:          s.repo,
 		storage:       storage,
-		uploads:       s.uploads,
+		uploads:       s.uploads.ForRoot(root),
 		dedupFallback: s.dedupFallback,
 		dedupTimeout:  s.dedupTimeout,
 		hashSem:       s.hashSem,

@@ -409,13 +409,50 @@ private fun TransferBanner(downloadState: TransferState, uploadState: TransferSt
         } else {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            val progressText = if (running.totalBytes != null && running.totalBytes > 0) {
+                "$label (${formatSize(running.transferredBytes)} / ${formatSize(running.totalBytes)})"
+            } else {
+                "$label (${formatSize(running.transferredBytes)})"
+            }
+            Text(
+                text = progressText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val speed = running.speedBytesPerSec
+            val eta = running.etaSeconds
+            val infoText = buildString {
+                if (speed > 0) append("${formatSize(speed)}/s")
+                if (eta != null && eta > 0) {
+                    if (isNotEmpty()) append(" · ")
+                    append(formatEta(eta))
+                }
+            }
+            if (infoText.isNotEmpty()) {
+                Text(
+                    text = infoText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
     }
+}
+
+private fun formatEta(seconds: Long): String = when {
+    seconds < 60 -> "${seconds}s"
+    seconds < 3600 -> "${seconds / 60}m ${seconds % 60}s"
+    else -> "${seconds / 3600}h ${(seconds % 3600) / 60}m"
 }
 
 @Composable
