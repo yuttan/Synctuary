@@ -69,14 +69,84 @@ class SecretStore private constructor(private val prefs: SharedPreferences) {
 
     fun loadHomeUrl(): String = prefs.getString(K_SERVER_URL, "").orEmpty()
 
-    fun saveRemoteUrl(url: String?) {
+    // ── Remote URL storage (up to MAX_REMOTE_URLS slots) ────────────
+
+    /** Save a remote URL at the given slot index. */
+    fun saveRemoteUrl(url: String?, index: Int = 0) {
+        if (index !in 0 until MAX_REMOTE_URLS) return
         prefs.edit().apply {
-            if (url != null) putString(K_REMOTE_URL, url)
-            else remove(K_REMOTE_URL)
+            if (url != null) putString(remoteUrlKey(index), url)
+            else remove(remoteUrlKey(index))
         }.apply()
     }
 
-    fun loadRemoteUrl(): String? = prefs.getString(K_REMOTE_URL, null)
+    /** Load a remote URL from the given slot. */
+    fun loadRemoteUrl(index: Int = 0): String? {
+        if (index !in 0 until MAX_REMOTE_URLS) return null
+        return prefs.getString(remoteUrlKey(index), null)
+    }
+
+    /** Save an optional label for a remote URL slot. */
+    fun saveRemoteLabel(label: String?, index: Int) {
+        if (index !in 0 until MAX_REMOTE_URLS) return
+        prefs.edit().apply {
+            if (label != null) putString(remoteLabelKey(index), label)
+            else remove(remoteLabelKey(index))
+        }.apply()
+    }
+
+    /** Load the label for a remote URL slot. */
+    fun loadRemoteLabel(index: Int): String? {
+        if (index !in 0 until MAX_REMOTE_URLS) return null
+        return prefs.getString(remoteLabelKey(index), null)
+    }
+
+    /** Return all configured remote URLs with their labels. */
+    fun loadAllRemoteUrls(): List<RemoteEntry> {
+        migrateRemoteUrl()
+        val result = mutableListOf<RemoteEntry>()
+        for (i in 0 until MAX_REMOTE_URLS) {
+            val url = prefs.getString(remoteUrlKey(i), null)
+            if (url != null) {
+                result.add(RemoteEntry(index = i, url = url, label = prefs.getString(remoteLabelKey(i), null)))
+            }
+        }
+        return result
+    }
+
+    /** Find the first empty slot index, or null if all slots are full. */
+    fun firstEmptySlot(): Int? {
+        for (i in 0 until MAX_REMOTE_URLS) {
+            if (prefs.getString(remoteUrlKey(i), null) == null) return i
+        }
+        return null
+    }
+
+    /** Delete a remote URL slot (clears both URL and label). */
+    fun deleteRemoteUrl(index: Int) {
+        if (index !in 0 until MAX_REMOTE_URLS) return
+        prefs.edit().apply {
+            remove(remoteUrlKey(index))
+            remove(remoteLabelKey(index))
+        }.apply()
+        // If the active mode pointed at this slot, reset to home.
+        if (getActiveMode() == remoteMode(index)) {
+            setActiveMode(MODE_HOME)
+        }
+    }
+
+    /** Migrate legacy single remote_url to slot 0 on first access. */
+    private fun migrateRemoteUrl() {
+        val legacy = prefs.getString(K_REMOTE_URL_LEGACY, null) ?: return
+        if (prefs.getString(remoteUrlKey(0), null) == null) {
+            prefs.edit().putString(remoteUrlKey(0), legacy).apply()
+        }
+        // Migrate active mode "remote" → "remote_0"
+        if (prefs.getString(K_ACTIVE_MODE, null) == "remote") {
+            prefs.edit().putString(K_ACTIVE_MODE, remoteMode(0)).apply()
+        }
+        prefs.edit().remove(K_REMOTE_URL_LEGACY).apply()
+    }
 
     fun updateServerUrl(url: String) {
         prefs.edit().putString(K_SERVER_URL, url).apply()
@@ -86,17 +156,31 @@ class SecretStore private constructor(private val prefs: SharedPreferences) {
         prefs.edit().putString(K_ACTIVE_MODE, mode).apply()
     }
 
-    fun getActiveMode(): String = prefs.getString(K_ACTIVE_MODE, MODE_HOME) ?: MODE_HOME
+    fun getActiveMode(): String {
+        migrateRemoteUrl()
+        return prefs.getString(K_ACTIVE_MODE, MODE_HOME) ?: MODE_HOME
+    }
+
+    /** Extract the slot index from a remote mode string, or null if home. */
+    fun activeRemoteIndex(): Int? {
+        val mode = getActiveMode()
+        if (!mode.startsWith("remote_")) return null
+        return mode.removePrefix("remote_").toIntOrNull()
+    }
 
     fun getActiveUrl(): String? {
         val homeUrl = prefs.getString(K_SERVER_URL, null)
         val mode = getActiveMode()
-        return if (mode == MODE_REMOTE) {
-            loadRemoteUrl() ?: homeUrl
+        val idx = activeRemoteIndex()
+        return if (idx != null) {
+            loadRemoteUrl(idx) ?: homeUrl
         } else {
             homeUrl
         }
     }
+
+    private fun remoteUrlKey(index: Int) = "remote_url_$index"
+    private fun remoteLabelKey(index: Int) = "remote_label_$index"
 
     /** Wipe everything. Used when the user explicitly un-pairs (mockup
      *  screen 7 — Danger Zone). After this the app falls back to
@@ -114,10 +198,12 @@ class SecretStore private constructor(private val prefs: SharedPreferences) {
         private const val K_DEVICE_PUB = "device_pub"
         private const val K_DEVICE_PRIV = "device_priv"
         private const val K_DEVICE_TOKEN = "device_token"
-        private const val K_REMOTE_URL = "remote_url"
+        private const val K_REMOTE_URL_LEGACY = "remote_url" // v0.7.0 single URL; migrated to slot 0
         private const val K_ACTIVE_MODE = "active_mode"
+        const val MAX_REMOTE_URLS = 3
         const val MODE_HOME = "home"
-        const val MODE_REMOTE = "remote"
+        /** Build the mode string for a remote slot index. */
+        fun remoteMode(index: Int): String = "remote_$index"
 
         /** Build the singleton-ish store for an Application context.
          *  EncryptedSharedPreferences is internally cached, so calling
@@ -153,3 +239,10 @@ data class PairedDevice(
     /** Bearer header value as the server expects it. */
     fun bearerHeader(): String = "Bearer " + B64Url.encode(deviceToken)
 }
+
+/** A single remote URL entry with its slot index and optional label. */
+data class RemoteEntry(
+    val index: Int,
+    val url: String,
+    val label: String? = null,
+)

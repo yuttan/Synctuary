@@ -41,21 +41,23 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.data.secret.RemoteEntry
 import io.synctuary.android.data.secret.SecretStore
 
 @Composable
 fun ConnectionPickerScreen(
     homeUrl: String,
-    remoteUrl: String,
+    remoteUrls: List<RemoteEntry>,
     activeMode: String,
     connecting: Boolean,
     error: String?,
     onSelectHome: () -> Unit,
-    onSelectRemote: (String) -> Unit,
+    onSelectRemote: (Int) -> Unit,
+    onAddRemote: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
     var showAddRemote by remember { mutableStateOf(false) }
-    var newRemoteUrl by remember { mutableStateOf(remoteUrl) }
+    var newRemoteUrl by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -107,23 +109,22 @@ fun ConnectionPickerScreen(
             onClick = onSelectHome,
         )
 
-        Spacer(Modifier.height(12.dp))
-
-        // Remote URL card
-        if (remoteUrl.isNotEmpty() && !showAddRemote) {
+        // Remote URL cards
+        for (entry in remoteUrls) {
+            Spacer(Modifier.height(12.dp))
             ConnectionCard(
                 icon = Icons.Filled.Public,
-                label = "Remote",
-                url = remoteUrl,
-                isActive = activeMode == SecretStore.MODE_REMOTE,
+                label = entry.label ?: "Remote ${entry.index + 1}",
+                url = entry.url,
+                isActive = activeMode == SecretStore.remoteMode(entry.index),
                 enabled = !connecting,
-                onClick = { onSelectRemote(remoteUrl) },
+                onClick = { onSelectRemote(entry.index) },
             )
         }
 
         Spacer(Modifier.height(12.dp))
 
-        // Add / Edit remote URL
+        // Add remote URL
         if (showAddRemote) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -133,7 +134,7 @@ fun ConnectionPickerScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = if (remoteUrl.isEmpty()) "Add Remote URL" else "Edit Remote URL",
+                        text = "Add Remote URL",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
@@ -159,7 +160,8 @@ fun ConnectionPickerScreen(
                                 val trimmed = newRemoteUrl.trim()
                                 if (trimmed.isNotEmpty()) {
                                     showAddRemote = false
-                                    onSelectRemote(trimmed)
+                                    onAddRemote(trimmed)
+                                    newRemoteUrl = ""
                                 }
                             },
                             enabled = newRemoteUrl.trim().isNotEmpty(),
@@ -169,17 +171,17 @@ fun ConnectionPickerScreen(
                     }
                 }
             }
-        } else {
+        } else if (remoteUrls.size < SecretStore.MAX_REMOTE_URLS) {
             TextButton(
                 onClick = {
-                    newRemoteUrl = remoteUrl
+                    newRemoteUrl = ""
                     showAddRemote = true
                 },
                 enabled = !connecting,
             ) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(if (remoteUrl.isEmpty()) "Add Remote URL" else "Edit Remote URL")
+                Text("Add Remote URL")
             }
         }
 

@@ -126,6 +126,8 @@ func (h *Handler) Register(r chi.Router) {
 				r.Get("/remote-access", h.RemoteAccessStatus)
 				r.Put("/remote-access", h.RemoteAccessUpdate)
 				r.Get("/ipv6/status", h.IPv6Status)
+				r.Get("/ipv6/selected-guas", h.IPv6SelectedGUAsGet)
+				r.Put("/ipv6/selected-guas", h.IPv6SelectedGUAsUpdate)
 
 				// WireGuard peer management (only functional when mode == "wireguard").
 				r.Route("/wireguard", func(r chi.Router) {
@@ -765,6 +767,67 @@ func (h *Handler) IPv6Status(w http.ResponseWriter, r *http.Request) {
 		"scheme":          scheme,
 		"urls":            urls,
 	})
+}
+
+// IPv6SelectedGUAsGet returns the admin-selected GUA list along with
+// all currently detected GUAs.
+func (h *Handler) IPv6SelectedGUAsGet(w http.ResponseWriter, r *http.Request) {
+	allGUAs := netutil.DetectIPv6GUAs()
+
+	raw, err := h.admin.GetSetting(r.Context(), "remote_access.ipv6.selected_guas")
+	if err != nil {
+		h.log.Error("get selected_guas", slog.String("err", err.Error()))
+		writeAdminError(w, http.StatusInternalServerError, "internal_error", "failed to read setting")
+		return
+	}
+
+	var selected []string
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &selected); err != nil {
+			h.log.Warn("invalid selected_guas JSON, resetting", slog.String("err", err.Error()))
+			selected = nil
+		}
+	}
+
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"selected_guas": selected,
+		"all_guas":      allGUAs,
+	})
+}
+
+// IPv6SelectedGUAsUpdate persists the admin's GUA selection to
+// server_meta. Each entry must be a valid IPv6 address.
+func (h *Handler) IPv6SelectedGUAsUpdate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		SelectedGUAs []string `json:"selected_guas"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAdminBody)).Decode(&body); err != nil {
+		writeAdminError(w, http.StatusBadRequest, "invalid_request", "invalid JSON body")
+		return
+	}
+
+	// Validate each entry is a valid IPv6 address.
+	for _, addr := range body.SelectedGUAs {
+		ip := net.ParseIP(addr)
+		if ip == nil || ip.To4() != nil {
+			writeAdminError(w, http.StatusBadRequest, "invalid_address", fmt.Sprintf("not a valid IPv6 address: %s", addr))
+			return
+		}
+	}
+
+	data, err := json.Marshal(body.SelectedGUAs)
+	if err != nil {
+		writeAdminError(w, http.StatusInternalServerError, "internal_error", "JSON marshal failed")
+		return
+	}
+
+	if err := h.admin.SetSetting(r.Context(), "remote_access.ipv6.selected_guas", string(data)); err != nil {
+		h.log.Error("set selected_guas", slog.String("err", err.Error()))
+		writeAdminError(w, http.StatusInternalServerError, "internal_error", "failed to save setting")
+		return
+	}
+
+	writeAdminJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // ──────────────────────────────────────────────────────────────────
