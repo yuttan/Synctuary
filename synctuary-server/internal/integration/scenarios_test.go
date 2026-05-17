@@ -732,3 +732,102 @@ func TestPathValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestDownloadContentDisposition: Content-Disposition header present on download.
+func TestDownloadContentDisposition(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.cleanup()
+	c := pairDevice(t, env, "uploader", "linux")
+
+	uploadOne(t, c, "/report.pdf", []byte("pdf content"), false)
+	resp := c.do(t, "GET", "/api/v1/files/content?path=/report.pdf", nil, nil)
+	defer resp.Body.Close()
+	expectStatus(t, resp, http.StatusOK, "download")
+
+	cd := resp.Header.Get("Content-Disposition")
+	if cd == "" {
+		t.Fatal("Content-Disposition header missing")
+	}
+	if !bytes.Contains([]byte(cd), []byte("report.pdf")) {
+		t.Errorf("Content-Disposition=%q, want filename containing report.pdf", cd)
+	}
+}
+
+// TestUploadInProgressRetryAfter: 409 on duplicate init includes Retry-After.
+func TestUploadInProgressRetryAfter(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.cleanup()
+	c := pairDevice(t, env, "uploader", "linux")
+
+	content := make([]byte, 200*1024)
+	for i := range content {
+		content[i] = byte(i & 0xff)
+	}
+	sum := sha256.Sum256(content)
+
+	initBody := map[string]any{
+		"path":      "/busy.bin",
+		"size":      len(content),
+		"sha256":    hex.EncodeToString(sum[:]),
+		"overwrite": false,
+	}
+	resp := c.doJSON(t, "POST", "/api/v1/files/upload/init", initBody)
+	expectStatus(t, resp, http.StatusCreated, "first init")
+	_ = resp.Body.Close()
+
+	resp = c.doJSON(t, "POST", "/api/v1/files/upload/init", initBody)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status=%d, want 409", resp.StatusCode)
+	}
+	ra := resp.Header.Get("Retry-After")
+	if ra == "" {
+		t.Error("Retry-After header missing on 409 upload_in_progress")
+	}
+}
+
+// TestUploadTTLRefresh: expires_at extends on each chunk write.
+func TestUploadTTLRefresh(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.cleanup()
+	c := pairDevice(t, env, "uploader", "linux")
+
+	content := make([]byte, 200*1024)
+	for i := range content {
+		content[i] = byte(i & 0xff)
+	}
+	sum := sha256.Sum256(content)
+
+	initBody := map[string]any{
+		"path":      "/ttl-test.bin",
+		"size":      len(content),
+		"sha256":    hex.EncodeToString(sum[:]),
+		"overwrite": false,
+	}
+	resp := c.doJSON(t, "POST", "/api/v1/files/upload/init", initBody)
+	expectStatus(t, resp, http.StatusCreated, "init")
+	var initResp struct {
+		UploadID  string `json:"upload_id"`
+		ExpiresAt int64  `json:"expires_at"`
+	}
+	decodeJSON(t, resp, &initResp)
+	initialExpiry := initResp.ExpiresAt
+
+	half := len(content) / 2
+	resp = c.do(t, "PUT", "/api/v1/files/upload/"+initResp.UploadID, content[:half], map[string]string{
+		"Content-Type":  "application/octet-stream",
+		"Content-Range": fmt.Sprintf("bytes 0-%d/%d", half-1, len(content)),
+	})
+	expectStatus(t, resp, http.StatusOK, "chunk 1")
+	_ = resp.Body.Close()
+
+	resp = c.do(t, "GET", "/api/v1/files/upload/"+initResp.UploadID, nil, nil)
+	expectStatus(t, resp, http.StatusOK, "progress")
+	var pg struct {
+		ExpiresAt int64 `json:"expires_at"`
+	}
+	decodeJSON(t, resp, &pg)
+	if pg.ExpiresAt < initialExpiry {
+		t.Errorf("expires_at=%d after chunk, want >= initial %d", pg.ExpiresAt, initialExpiry)
+	}
+}

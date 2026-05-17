@@ -127,7 +127,7 @@ func Defaults() *Config {
 			Path: "./data/meta.db",
 		},
 		Upload: UploadConfig{
-			ChunkSize:            8 * 1024 * 1024,
+			ChunkSize:            2 * 1024 * 1024,
 			ChunkSizeMax:         32 * 1024 * 1024,
 			SessionTTL:           24 * time.Hour,
 			DedupFallback:        "fallthrough",

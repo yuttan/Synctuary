@@ -36,11 +36,7 @@ internal class UploadManager(private val api: SynctuaryApi) {
         val init = try {
             api.uploadInit(UploadInitRequest(remotePath, fileSize, sha256, overwrite), share = shareId)
         } catch (e: HttpException) {
-            val msg = when (e.code()) {
-                409 -> "upload blocked: another device is uploading to this path"
-                else -> "upload init failed: HTTP ${e.code()}"
-            }
-            throw FileOperationException(msg, e)
+            throw uploadHttpError(e)
         }
 
         if (init.status == "deduplicated") {
@@ -71,7 +67,7 @@ internal class UploadManager(private val api: SynctuaryApi) {
                 val progress = try {
                     api.uploadChunk(uploadId, range, body)
                 } catch (e: HttpException) {
-                    throw FileOperationException("chunk upload failed: HTTP ${e.code()}", e)
+                    throw chunkHttpError(e)
                 }
 
                 sent = progress.uploaded_bytes
@@ -79,6 +75,33 @@ internal class UploadManager(private val api: SynctuaryApi) {
                 if (progress.complete) break
             }
         } ?: throw FileOperationException("cannot open URI for reading: $uri")
+    }
+
+    private fun uploadHttpError(e: HttpException): FileOperationException {
+        val body = e.response()?.errorBody()?.string()
+        val (code, message) = DownloadManager.parseServerError(body)
+        val retryAfter = e.response()?.headers()?.get("Retry-After")?.toLongOrNull()
+        val msg = when (code) {
+            "upload_in_progress" -> if (retryAfter != null)
+                "Another device is uploading to this path (retry in ${retryAfter}s)"
+            else "Another device is uploading to this path"
+            "file_exists" -> "File already exists"
+            else -> message ?: "upload init failed: HTTP ${e.code()}"
+        }
+        return FileOperationException(msg, e)
+    }
+
+    private fun chunkHttpError(e: HttpException): FileOperationException {
+        val body = e.response()?.errorBody()?.string()
+        val (code, message) = DownloadManager.parseServerError(body)
+        val msg = when (code) {
+            "upload_range_mismatch" -> "Upload position mismatch; restart upload"
+            "upload_hash_mismatch" -> "File content changed during upload"
+            "payload_too_large" -> "Chunk size exceeds server limit"
+            "insufficient_storage" -> "Server storage is full"
+            else -> message ?: "chunk upload failed: HTTP ${e.code()}"
+        }
+        return FileOperationException(msg, e)
     }
 
     private fun resolveSize(cr: ContentResolver, uri: Uri): Long =

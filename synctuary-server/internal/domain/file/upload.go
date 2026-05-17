@@ -189,6 +189,11 @@ type UploadSession interface {
 	// fall back to generic 500 or advise the client to retry.
 	ActiveByPath(ctx context.Context, path string) (*ActiveUploadInfo, error)
 
+	// ForRoot returns a shallow copy scoped to a different storage
+	// root path. Used to direct upload finalization to a share's
+	// HostPath instead of the global root.
+	ForRoot(root string) UploadSession
+
 	// CollectExpired deletes all sessions whose expires_at ≤ now
 	// and removes their staging files. Called on a periodic GC
 	// tick by the daemon. Returns the number of sessions removed

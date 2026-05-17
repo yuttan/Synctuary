@@ -247,7 +247,8 @@ class FileBrowserViewModel @JvmOverloads constructor(
         val prefs = app.getSharedPreferences("synctuary-settings", Context.MODE_PRIVATE)
         val folderUri = prefs.getString(SettingsViewModel.K_DOWNLOAD_FOLDER, null)
 
-        _uiState.update { it.copy(downloadState = TransferState.Running(name, 0L, entry.size)) }
+        val t0 = System.currentTimeMillis()
+        _uiState.update { it.copy(downloadState = TransferState.Running(name, 0L, entry.size, startTimeMs = t0)) }
         viewModelScope.launch {
             try {
                 val destLabel: String
@@ -262,8 +263,13 @@ class FileBrowserViewModel @JvmOverloads constructor(
                     repo.downloadFileToUri(
                         remotePath, app.contentResolver, destDoc.uri,
                         onProgress = { received, total ->
-                            _uiState.update {
-                                it.copy(downloadState = TransferState.Running(name, received, total))
+                            _uiState.update { s ->
+                                val prev = s.downloadState as? TransferState.Running
+                                s.copy(downloadState = TransferState.Running(
+                                    name, received, total,
+                                    startTimeMs = prev?.startTimeMs ?: t0,
+                                    startBytes = prev?.startBytes ?: 0L,
+                                ))
                             }
                         },
                         shareId = _currentShare.value?.id,
@@ -276,8 +282,13 @@ class FileBrowserViewModel @JvmOverloads constructor(
                     repo.downloadFile(
                         remotePath, destFile,
                         onProgress = { received, total ->
-                            _uiState.update {
-                                it.copy(downloadState = TransferState.Running(name, received, total))
+                            _uiState.update { s ->
+                                val prev = s.downloadState as? TransferState.Running
+                                s.copy(downloadState = TransferState.Running(
+                                    name, received, total,
+                                    startTimeMs = prev?.startTimeMs ?: t0,
+                                    startBytes = prev?.startBytes ?: 0L,
+                                ))
                             }
                         },
                         shareId = _currentShare.value?.id,
@@ -301,14 +312,20 @@ class FileBrowserViewModel @JvmOverloads constructor(
         val name = entry.name
         val remotePath = buildEntryPath(name)
 
-        _uiState.update { it.copy(downloadState = TransferState.Running(name, 0L, entry.size)) }
+        val t0 = System.currentTimeMillis()
+        _uiState.update { it.copy(downloadState = TransferState.Running(name, 0L, entry.size, startTimeMs = t0)) }
         viewModelScope.launch {
             try {
                 repo.downloadFileToUri(
                     remotePath, app.contentResolver, destUri,
                     onProgress = { received, total ->
-                        _uiState.update {
-                            it.copy(downloadState = TransferState.Running(name, received, total))
+                        _uiState.update { s ->
+                            val prev = s.downloadState as? TransferState.Running
+                            s.copy(downloadState = TransferState.Running(
+                                name, received, total,
+                                startTimeMs = prev?.startTimeMs ?: t0,
+                                startBytes = prev?.startBytes ?: 0L,
+                            ))
                         }
                     },
                     shareId = _currentShare.value?.id,
@@ -331,14 +348,20 @@ class FileBrowserViewModel @JvmOverloads constructor(
         val fileName = resolveDisplayName(uri)
         val remotePath = buildRemoteUploadPath(fileName)
 
-        _uiState.update { it.copy(uploadState = TransferState.Running(fileName, 0L, null)) }
+        val t0 = System.currentTimeMillis()
+        _uiState.update { it.copy(uploadState = TransferState.Running(fileName, 0L, null, startTimeMs = t0)) }
         viewModelScope.launch {
             try {
                 repo.uploadFile(
                     app.contentResolver, uri, remotePath,
                     onProgress = { uploaded, total ->
-                        _uiState.update {
-                            it.copy(uploadState = TransferState.Running(fileName, uploaded, total))
+                        _uiState.update { s ->
+                            val prev = s.uploadState as? TransferState.Running
+                            s.copy(uploadState = TransferState.Running(
+                                fileName, uploaded, total,
+                                startTimeMs = prev?.startTimeMs ?: t0,
+                                startBytes = prev?.startBytes ?: 0L,
+                            ))
                         }
                     },
                     shareId = _currentShare.value?.id,
