@@ -4,39 +4,44 @@
 [![Android CI](https://github.com/yuttan/Synctuary/actions/workflows/android.yml/badge.svg)](https://github.com/yuttan/Synctuary/actions/workflows/android.yml)
 [![Release](https://github.com/yuttan/Synctuary/actions/workflows/release.yml/badge.svg)](https://github.com/yuttan/Synctuary/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
-[![PROTOCOL](https://img.shields.io/badge/PROTOCOL-v0.2.3-purple.svg)](./PROTOCOL.md)
+[![PROTOCOL](https://img.shields.io/badge/PROTOCOL-v0.3.0-purple.svg)](./PROTOCOL.md)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg?logo=go&logoColor=white)](./synctuary-server/go.mod)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF.svg?logo=kotlin&logoColor=white)](./synctuary-android/gradle/libs.versions.toml)
 
 A self-hosted file synchronization server for the home LAN, with native clients.
 ホームLAN用のセルフホスト型ファイル同期サーバーとネイティブクライアント。
 
-> **Status** (2026-04-30): server v0.4 feature-complete (PROTOCOL v0.2.3 + §8 favorites). Android client Phase 2 done — crypto + network + pairing. Onboarding UI lands in Phase 2.2.
-> **ステータス** (2026-04-30): サーバー v0.4 で機能完了（PROTOCOL v0.2.3 + §8 お気に入り）。Android クライアント Phase 2 完了 — 暗号化 + ネットワーク + ペアリング。オンボーディング UI は Phase 2.2 で実装予定。
+> **Status** (2026-05-17): server v0.7 — PROTOCOL v0.3.0 fully implemented (shares, pins, thumbnails, remote access). Android client v0.7.3 — all UI phases complete (file browser, media preview, favorites, backup, transfer progress). Admin Web UI embedded.
+> **ステータス** (2026-05-17): サーバー v0.7 — PROTOCOL v0.3.0 完全実装（共有、ピン、サムネイル、リモートアクセス）。Android クライアント v0.7.3 — 全UIフェーズ完了（ファイルブラウザ、メディアプレビュー、お気に入り、バックアップ、転送プログレス）。管理Web UI組み込み済み。
 
 ## Components / コンポーネント
 
 | Component | Path | Status |
 |:---|:---|:---|
-| **Server (Go)** | [`synctuary-server/`](./synctuary-server/) | v0.4 — buildable, lint-clean, full unit + integration tests |
-| **Container image** | [`ghcr.io/yuttan/synctuary`](https://github.com/yuttan/Synctuary/pkgs/container/synctuary) | Multi-arch amd64 + arm64 on tag push; amd64 `:main` on every merge |
-| **Protocol spec** | [`PROTOCOL.md`](./PROTOCOL.md) | **v0.2.3** — §1-§9 finalized, §8 Favorites added |
+| **Server (Go)** | [`synctuary-server/`](./synctuary-server/) | v0.7 — PROTOCOL v0.3.0 complete, admin UI, thumbnails, remote access (IPv6 + WireGuard) |
+| **Admin Web UI** | `/admin/` (embedded) | Preact + Vite + Tailwind CSS, embedded via `go:embed`. Dashboard, shares, devices, pairing, VPN management |
+| **Container image** | [`ghcr.io/yuttan/synctuary`](https://github.com/yuttan/Synctuary/pkgs/container/synctuary) | Multi-arch amd64 + arm64 on tag push; amd64 `:main` on every merge. Includes static ffmpeg for video thumbnails |
+| **Protocol spec** | [`PROTOCOL.md`](./PROTOCOL.md) | **v0.3.0** — §1-§11 finalized (§10 Shares, §11 Pins added) |
 | **Architecture doc** | [`arch_saya_go_server_v3.md`](./arch_saya_go_server_v3.md) | Latest server-side design / サーバー側設計（最新） |
 | **Deployment guide** | [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) | Docker / Compose / systemd, all three paths covered / 導入ガイド（全3パターン対応） |
-| **Android client** | [`synctuary-android/`](./synctuary-android/) | Phase 2 done (crypto + network + pairing). Phase 2.2 (UI) pending. See README inside |
+| **Android client** | [`synctuary-android/`](./synctuary-android/) | v0.7.3 — all phases complete: file browser, media preview, favorites, photo backup, QR pairing, transfer progress |
 | **Android UI mockups** | [`docs/android-ui-mockups.html`](./docs/android-ui-mockups.html) | 14 screens, Material 3 dark, right-thumb optimized / 14画面のモックアップ |
-| **iOS client** | (planned) | Slated for v1.0 / v1.0 で実装予定 |
+| **iOS client** | (planned) | Deferred until test device is available / テスト端末入手後に実装予定 |
 
 ## Design goals / 設計目標
 
-- **LAN-only by default** — no third-party cloud, no external accounts. Runs on your own hardware (NAS / home server / mini PC).
-  デフォルトでLANのみ。サードパーティのクラウドや外部アカウント不要。自前のハードウェア（NAS / ホームサーバー / ミニPC）上で動作。
-- **Strong cryptographic identity** — server identity is derived from a BIP-39 mnemonic; device pairing uses Ed25519 challenge-response over a 129-byte signed payload (PROTOCOL §4.1).
-  強力な暗号化アイデンティティ。サーバーのアイデンティティは BIP-39 マンダリムから派生。デバイスペアリングには Ed25519 チャレンジ・レスポンスを使用（PROTOCOL §4.1）。
-- **Resumable chunked uploads** — large files survive flaky Wi-Fi (PROTOCOL §6.3).
-  再開可能なチャンクアップロード。不安定なWi-Fiでも大容量ファイルが破れにくい（PROTOCOL §6.3）。
+- **LAN-first, remote-capable** — no third-party cloud, no external accounts. Runs on your own hardware (NAS / home server / mini PC). Optional IPv6 direct or WireGuard tunnel for remote access.
+  LANファースト、リモート対応。サードパーティのクラウドや外部アカウント不要。自前のハードウェア上で動作。IPv6直接接続またはWireGuardトンネルによるリモートアクセスをオプション提供。
+- **Strong cryptographic identity** — server identity is derived from a BIP-39 mnemonic; device pairing uses Ed25519 challenge-response over a 129-byte signed payload (PROTOCOL §4.1). QR one-tap pairing from admin UI.
+  強力な暗号化アイデンティティ。BIP-39 ニーモニックからサーバーIDを導出。Ed25519チャレンジ・レスポンスによるデバイスペアリング（PROTOCOL §4.1）。管理UIからのQRワンタップペアリング対応。
+- **Resumable chunked uploads** — large files survive flaky Wi-Fi. Mobile-friendly 2 MiB default chunks, TTL refreshed on each chunk, download resume via Range headers (PROTOCOL §6.3).
+  再開可能なチャンクアップロード。モバイル向け2MiBデフォルトチャンク、チャンク毎のTTL更新、Rangeヘッダーによるダウンロードレジューム対応（PROTOCOL §6.3）。
+- **Multi-drive shares** — expose multiple host directories as named shares; each share is independently browseable with its own storage root (PROTOCOL §10).
+  マルチドライブ共有。複数のホストディレクトリを名前付き共有として公開。各共有は独立したストレージルートで個別にブラウズ可能（PROTOCOL §10）。
 - **Content-addressed dedup** — same bytes uploaded a second time become a hardlink (or sync-copy fallback).
   コンテンツアドレス型重複排除。同じバイト列を再アップロードするとハードリンク化され、ストレージを節約。
+- **On-demand thumbnails** — JPEG thumbnails for images and video (via ffmpeg), cached in SQLite for instant delivery.
+  オンデマンドサムネイル。画像・動画（ffmpeg経由）のJPEGサムネイルをSQLiteキャッシュで即配信。
 - **Clean architecture** — domain → usecase → adapter, every external dependency behind an interface; mirrored in the Android client (`crypto/`, `data/`, `ui/` layers).
   クリーンアーキテクチャ。domain → usecase → adapter の階層構造。外部依存はすべてインターフェース背後に配置。
 
@@ -53,8 +58,8 @@ go build ./...
 go run ./cmd/synctuaryd
 ```
 
-First launch prints a 24-word BIP-39 mnemonic on **stderr** — record this offline. Subsequent launches load the persisted master key silently.
-初回起動時に **stderr** に 24語の BIP-39 マンダリムが表示されます。オフラインで記録してください。2回目以降の起動では永続化されたマスターキーをサイレントに読み込みます。
+First launch prints a 24-word BIP-39 mnemonic on **stderr** — record this offline. Subsequent launches load the persisted master key silently. Admin UI is available at `https://<host>:8443/admin/`.
+初回起動時に **stderr** に 24語の BIP-39 ニーモニックが表示されます。オフラインで記録してください。2回目以降の起動では永続化されたマスターキーをサイレントに読み込みます。管理UIは `https://<host>:8443/admin/` で利用可能。
 
 ### Server (production) / サーバー（本番環境）
 
@@ -84,8 +89,8 @@ cd synctuary-android
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The debug build shows a `PairingTestScreen` for end-to-end pairing verification (URL + 24-word mnemonic input). The release build shows a splash placeholder until the Phase 2.2 onboarding UI lands.
-デバッグビルドでは URL と 24語マンダリムの入力によるエンドツーエンドペアリング検証画面が表示されます。リリースビルドは Phase 2.2 のオンボーディング UI 実装までスプラッシュ画面を表示します。
+The app launches into the onboarding flow (server URL + QR pairing or 24-word mnemonic). Once paired, the main UI shows four tabs: Files, Favorites, Devices, and Settings.
+アプリはオンボーディングフロー（サーバーURL + QRペアリング or 24語ニーモニック）から開始。ペアリング完了後、ファイル・お気に入り・デバイス・設定の4タブUIが表示されます。
 
 ## Tests / テスト
 
@@ -175,9 +180,9 @@ Tag a commit on `main` to trigger a multi-arch container publish:
 `main` のコミットにタグを付けると、マルチアーキテクチャのコンテナ公開がトリガーされます:
 
 ```sh
-git tag v0.4.1
-git push origin v0.4.1
-# Workflow: Release → ghcr.io/yuttan/synctuary:0.4.1, :0.4, :0, :latest, :sha-<7>
+git tag v0.7.0
+git push origin v0.7.0
+# Workflow: Release → ghcr.io/yuttan/synctuary:0.7.0, :0.7, :0, :latest, :sha-<7>
 ```
 
 `VERSION` and `COMMIT` build-args are auto-injected via `-ldflags -X` and surface in `/api/v1/info` (`server_version`, `commit`) and the startup log.
