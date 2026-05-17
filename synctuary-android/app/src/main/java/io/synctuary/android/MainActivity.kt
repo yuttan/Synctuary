@@ -251,12 +251,13 @@ private fun SynctuaryNavHost() {
             composable(NavRoute.ConnectionPicker.route) {
                 ConnectionPickerScreen(
                     homeUrl = onboardingVm.getHomeUrl(),
-                    remoteUrl = onboardingVm.getRemoteUrl(),
+                    remoteUrls = onboardingVm.getRemoteUrls(),
                     activeMode = onboardingVm.getActiveMode(),
                     connecting = connectionState.checking,
                     error = connectionState.error,
                     onSelectHome = { onboardingVm.switchToHome() },
-                    onSelectRemote = { url -> onboardingVm.switchToRemote(url) },
+                    onSelectRemote = { index -> onboardingVm.switchToRemote(index) },
+                    onAddRemote = { url -> onboardingVm.addAndSwitchToRemote(url) },
                     onRetry = { onboardingVm.checkConnection() },
                 )
             }

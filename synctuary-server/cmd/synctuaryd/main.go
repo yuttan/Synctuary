@@ -376,6 +376,7 @@ func main() {
 		Favorites:        favoriteSvc,
 		Shares:           shareSvc,
 		Pins:             pinSvc,
+		Admin:            adminSvc,
 		DeviceRepo:       deviceRepo,
 		BaseStorage:      storage,
 		Logger:           logger,

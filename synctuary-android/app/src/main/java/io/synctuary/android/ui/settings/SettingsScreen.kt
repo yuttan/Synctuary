@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Home
@@ -79,9 +80,13 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     var showUnpairDialog by remember { mutableStateOf(false) }
     var editingHomeUrl by remember { mutableStateOf(false) }
-    var editingRemoteUrl by remember { mutableStateOf(false) }
+    var editingRemoteIndex by remember { mutableStateOf(-1) }
     var homeUrlDraft by remember { mutableStateOf("") }
     var remoteUrlDraft by remember { mutableStateOf("") }
+    var remoteLabelDraft by remember { mutableStateOf("") }
+    var showAddRemote by remember { mutableStateOf(false) }
+    var newRemoteUrl by remember { mutableStateOf("") }
+    var newRemoteLabel by remember { mutableStateOf("") }
     val context = LocalContext.current
 
     val folderPicker = rememberLauncherForActivityResult(
@@ -140,12 +145,13 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ),
                 ) {
-                    Row(
+                    // Active mode selector
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
                     ) {
+                        // Home button
                         val isHome = state.activeMode == SecretStore.MODE_HOME
                         Button(
                             onClick = { viewModel.setActiveMode(SecretStore.MODE_HOME) },
@@ -155,30 +161,36 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                                 contentColor = if (isHome) MaterialTheme.colorScheme.onPrimary
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                             ),
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             Icon(Icons.Filled.Home, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(stringResource(R.string.settings_home))
                         }
-                        Button(
-                            onClick = { viewModel.setActiveMode(SecretStore.MODE_REMOTE) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!isHome) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (!isHome) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Filled.Public, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(stringResource(R.string.settings_remote))
+                        // Remote buttons
+                        for (entry in state.remoteUrls) {
+                            Spacer(Modifier.height(6.dp))
+                            val isActive = state.activeMode == SecretStore.remoteMode(entry.index)
+                            Button(
+                                onClick = { viewModel.setActiveMode(SecretStore.remoteMode(entry.index)) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isActive) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = if (isActive) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Filled.Public, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(entry.label ?: "Remote ${entry.index + 1}")
+                            }
                         }
                     }
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
+                    // Home URL row
                     EditableUrlRow(
                         icon = Icons.Filled.Home,
                         label = stringResource(R.string.settings_home_url),
@@ -197,25 +209,96 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                         onCancel = { editingHomeUrl = false },
                     )
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    // Remote URL rows
+                    for (entry in state.remoteUrls) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        val isEditing = editingRemoteIndex == entry.index
+                        EditableUrlRow(
+                            icon = Icons.Filled.Public,
+                            label = entry.label ?: "Remote ${entry.index + 1}",
+                            value = entry.url,
+                            editing = isEditing,
+                            draft = remoteUrlDraft,
+                            onEditStart = {
+                                remoteUrlDraft = entry.url
+                                remoteLabelDraft = entry.label ?: ""
+                                editingRemoteIndex = entry.index
+                            },
+                            onDraftChange = { remoteUrlDraft = it },
+                            onSave = {
+                                viewModel.updateRemoteUrl(entry.index, remoteUrlDraft.trim(), remoteLabelDraft.ifEmpty { null })
+                                editingRemoteIndex = -1
+                            },
+                            onCancel = { editingRemoteIndex = -1 },
+                            onDelete = {
+                                viewModel.deleteRemoteUrl(entry.index)
+                                editingRemoteIndex = -1
+                            },
+                            labelDraft = remoteLabelDraft,
+                            onLabelChange = { remoteLabelDraft = it },
+                        )
+                    }
 
-                    EditableUrlRow(
-                        icon = Icons.Filled.Public,
-                        label = stringResource(R.string.settings_remote_url),
-                        value = state.remoteUrl.ifEmpty { stringResource(R.string.settings_not_set) },
-                        editing = editingRemoteUrl,
-                        draft = remoteUrlDraft,
-                        onEditStart = {
-                            remoteUrlDraft = state.remoteUrl
-                            editingRemoteUrl = true
-                        },
-                        onDraftChange = { remoteUrlDraft = it },
-                        onSave = {
-                            viewModel.updateRemoteUrl(remoteUrlDraft.trim())
-                            editingRemoteUrl = false
-                        },
-                        onCancel = { editingRemoteUrl = false },
-                    )
+                    // Add remote URL
+                    if (state.remoteUrls.size < SecretStore.MAX_REMOTE_URLS) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        if (showAddRemote) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                OutlinedTextField(
+                                    value = newRemoteLabel,
+                                    onValueChange = { newRemoteLabel = it },
+                                    singleLine = true,
+                                    label = { Text("Label (e.g. Tailscale, IPv6)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = newRemoteUrl,
+                                    onValueChange = { newRemoteUrl = it },
+                                    singleLine = true,
+                                    label = { Text("URL") },
+                                    placeholder = { Text("https://192.168.1.10:8443") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
+                                ) {
+                                    TextButton(onClick = { showAddRemote = false }) {
+                                        Text(stringResource(android.R.string.cancel))
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Button(
+                                        onClick = {
+                                            viewModel.addRemoteUrl(newRemoteUrl.trim(), newRemoteLabel.trim().ifEmpty { null })
+                                            showAddRemote = false
+                                            newRemoteUrl = ""
+                                            newRemoteLabel = ""
+                                        },
+                                        enabled = newRemoteUrl.trim().isNotEmpty(),
+                                    ) {
+                                        Text(stringResource(android.R.string.ok))
+                                    }
+                                }
+                            }
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    newRemoteUrl = ""
+                                    newRemoteLabel = ""
+                                    showAddRemote = true
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(stringResource(R.string.settings_add_remote))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -631,6 +714,9 @@ private fun EditableUrlRow(
     onDraftChange: (String) -> Unit,
     onSave: () -> Unit,
     onCancel: () -> Unit,
+    onDelete: (() -> Unit)? = null,
+    labelDraft: String? = null,
+    onLabelChange: ((String) -> Unit)? = null,
 ) {
     if (editing) {
         Column(
@@ -638,16 +724,28 @@ private fun EditableUrlRow(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (labelDraft != null && onLabelChange != null) {
+                OutlinedTextField(
+                    value = labelDraft,
+                    onValueChange = onLabelChange,
+                    singleLine = true,
+                    label = { Text("Label") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+            } else {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(4.dp))
             OutlinedTextField(
                 value = draft,
                 onValueChange = onDraftChange,
                 singleLine = true,
+                label = { Text("URL") },
                 placeholder = { Text("https://192.168.1.10:8443") },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -656,6 +754,17 @@ private fun EditableUrlRow(
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
                 modifier = Modifier.fillMaxWidth(),
             ) {
+                if (onDelete != null) {
+                    TextButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                    ) {
+                        Text(stringResource(R.string.delete))
+                    }
+                    Spacer(Modifier.weight(1f))
+                }
                 TextButton(onClick = onCancel) {
                     Text(stringResource(R.string.cancel))
                 }

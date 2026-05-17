@@ -152,6 +152,7 @@
     <string name="settings_remote">Remote</string>
     <string name="settings_home_url">Home URL</string>
     <string name="settings_remote_url">Remote URL</string>
+    <string name="settings_add_remote">Add Remote URL</string>
     <string name="settings_not_set">Not set</string>
     <string name="settings_server">Server</string>
     <string name="settings_server_id">server_id</string>

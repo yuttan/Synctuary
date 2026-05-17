@@ -25,7 +25,7 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     fun isPaired(): Boolean = secretStore.isPaired()
 
     fun getHomeUrl(): String = secretStore.loadHomeUrl()
-    fun getRemoteUrl(): String = secretStore.loadRemoteUrl() ?: ""
+    fun getRemoteUrls() = secretStore.loadAllRemoteUrls()
     fun getActiveMode(): String = secretStore.getActiveMode()
 
     private val _connectionState = MutableStateFlow(ConnectionCheckState())
@@ -41,7 +41,17 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
                     fingerprint = paired.serverFingerprint,
                     authInterceptor = AuthInterceptor(secretStore),
                 )
-                api.info()
+                val info = api.info()
+                // Sync remote URL from server's IPv6 GUA selection into slot 0.
+                if (!info.ipv6_urls.isNullOrEmpty()) {
+                    val newUrl = info.ipv6_urls.first()
+                    if (secretStore.loadRemoteUrl(0) != newUrl) {
+                        secretStore.saveRemoteUrl(newUrl, 0)
+                        if (secretStore.loadRemoteLabel(0) == null) {
+                            secretStore.saveRemoteLabel("IPv6", 0)
+                        }
+                    }
+                }
                 _connectionState.update { it.copy(checking = false, reachable = true, error = null) }
             } catch (e: Exception) {
                 _connectionState.update {
@@ -56,9 +66,15 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         checkConnection()
     }
 
-    fun switchToRemote(url: String) {
-        secretStore.saveRemoteUrl(url)
-        secretStore.setActiveMode(SecretStore.MODE_REMOTE)
+    fun switchToRemote(index: Int) {
+        secretStore.setActiveMode(SecretStore.remoteMode(index))
+        checkConnection()
+    }
+
+    fun addAndSwitchToRemote(url: String) {
+        val slot = secretStore.firstEmptySlot() ?: 0
+        secretStore.saveRemoteUrl(url, slot)
+        secretStore.setActiveMode(SecretStore.remoteMode(slot))
         checkConnection()
     }
 

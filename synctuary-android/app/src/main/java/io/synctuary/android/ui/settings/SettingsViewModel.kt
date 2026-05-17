@@ -8,6 +8,7 @@ import io.synctuary.android.crypto.B64Url
 import io.synctuary.android.data.DevicesRepository
 import io.synctuary.android.data.backup.BackupScheduler
 import io.synctuary.android.data.backup.PhotoBackupWorker
+import io.synctuary.android.data.secret.RemoteEntry
 import io.synctuary.android.data.secret.SecretStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,12 +28,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private fun buildState(): SettingsUiState {
         val homeUrl = secretStore.loadHomeUrl()
-        val remoteUrl = secretStore.loadRemoteUrl() ?: ""
+        val remoteUrls = secretStore.loadAllRemoteUrls()
         val activeMode = secretStore.getActiveMode()
         val paired = secretStore.loadPairedDevice()
         return SettingsUiState(
             serverUrl = homeUrl,
-            remoteUrl = remoteUrl,
+            remoteUrls = remoteUrls,
             activeMode = activeMode,
             serverId = paired?.serverId?.let { B64Url.encode(it) } ?: "",
             tlsFingerprint = paired?.serverFingerprint?.let { formatFingerprint(it) } ?: "",
@@ -82,6 +83,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 _uiState.update {
                     it.copy(protocolVersion = info.protocol_version)
                 }
+                // Sync remote URL from server's IPv6 GUA selection into slot 0.
+                if (!info.ipv6_urls.isNullOrEmpty()) {
+                    val newUrl = info.ipv6_urls.first()
+                    if (secretStore.loadRemoteUrl(0) != newUrl) {
+                        secretStore.saveRemoteUrl(newUrl, 0)
+                        if (secretStore.loadRemoteLabel(0) == null) {
+                            secretStore.saveRemoteLabel("IPv6", 0)
+                        }
+                        _uiState.update { it.copy(remoteUrls = secretStore.loadAllRemoteUrls()) }
+                    }
+                }
             } catch (_: Exception) { }
         }
     }
@@ -91,14 +103,31 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(serverUrl = url) }
     }
 
-    fun updateRemoteUrl(url: String) {
+    fun updateRemoteUrl(index: Int, url: String, label: String?) {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) {
-            secretStore.saveRemoteUrl(null)
+            secretStore.deleteRemoteUrl(index)
         } else {
-            secretStore.saveRemoteUrl(trimmed)
+            secretStore.saveRemoteUrl(trimmed, index)
+            secretStore.saveRemoteLabel(label?.trim()?.ifEmpty { null }, index)
         }
-        _uiState.update { it.copy(remoteUrl = trimmed) }
+        _uiState.update { it.copy(
+            remoteUrls = secretStore.loadAllRemoteUrls(),
+            activeMode = secretStore.getActiveMode(),
+        ) }
+    }
+
+    fun addRemoteUrl(url: String, label: String?) {
+        val slot = secretStore.firstEmptySlot() ?: return
+        updateRemoteUrl(slot, url, label)
+    }
+
+    fun deleteRemoteUrl(index: Int) {
+        secretStore.deleteRemoteUrl(index)
+        _uiState.update { it.copy(
+            remoteUrls = secretStore.loadAllRemoteUrls(),
+            activeMode = secretStore.getActiveMode(),
+        ) }
     }
 
     fun setActiveMode(mode: String) {
@@ -178,7 +207,7 @@ private fun formatFingerprint(bytes: ByteArray): String {
 
 data class SettingsUiState(
     val serverUrl: String = "",
-    val remoteUrl: String = "",
+    val remoteUrls: List<RemoteEntry> = emptyList(),
     val activeMode: String = "home",
     val serverId: String = "",
     val tlsFingerprint: String = "",

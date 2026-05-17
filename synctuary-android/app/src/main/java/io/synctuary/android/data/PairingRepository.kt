@@ -181,6 +181,13 @@ class PairingRepository(
             deviceToken = deviceToken,
         )
 
+        // Auto-populate remote URL slot 0 from server's IPv6 GUA selection
+        // so the user doesn't need to manually enter an IPv6 address.
+        if (!info.ipv6_urls.isNullOrEmpty()) {
+            secretStore.saveRemoteUrl(info.ipv6_urls.first(), 0)
+            secretStore.saveRemoteLabel("IPv6", 0)
+        }
+
         return PairedDeviceSummary(
             serverName = info.server_name,
             serverUrl = serverUrl,

@@ -6,6 +6,7 @@
 package http
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
@@ -69,6 +70,7 @@ type Handler struct {
 	favorites   *usecase.FavoriteService
 	shares      *usecase.ShareService
 	pins        *usecase.PinService
+	admin       *usecase.AdminService // optional; enables GUA selection filtering
 	deviceRP    device.Repository
 	baseStorage *fs.FileStorage
 
@@ -96,6 +98,7 @@ type HandlerConfig struct {
 	Favorites        *usecase.FavoriteService
 	Shares           *usecase.ShareService
 	Pins             *usecase.PinService
+	Admin            *usecase.AdminService // optional; enables GUA selection filtering in /info
 	DeviceRepo       device.Repository
 	BaseStorage      *fs.FileStorage
 	Logger           *slog.Logger
@@ -130,6 +133,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		favorites:        cfg.Favorites,
 		shares:           cfg.Shares,
 		pins:             cfg.Pins,
+		admin:            cfg.Admin,
 		deviceRP:         cfg.DeviceRepo,
 		baseStorage:      cfg.BaseStorage,
 		log:              cfg.Logger,
@@ -215,9 +219,11 @@ func (h *Handler) Info(w http.ResponseWriter, r *http.Request) {
 		body["commit"] = h.commit
 	}
 	// When ipv6 mode is active, advertise the server's IPv6 GUA URLs
-	// so clients can connect over remote access.
+	// so clients can connect over remote access. If the admin selected
+	// specific GUAs, only those are advertised; otherwise all detected.
 	if h.remoteAccess.Mode == "ipv6" {
-		urls := buildIPv6URLs(r, h.transportProfile, h.remoteAccess.IPv6.AdvertisedAddress)
+		selected := h.loadSelectedGUAs(r.Context())
+		urls := buildIPv6URLs(r, h.transportProfile, h.remoteAccess.IPv6.AdvertisedAddress, selected)
 		if len(urls) > 0 {
 			body["ipv6_urls"] = urls
 		}
@@ -1209,10 +1215,31 @@ func (h *Handler) writeFileErr(w http.ResponseWriter, err error, op string) {
 	}
 }
 
+// loadSelectedGUAs reads the admin-selected GUA list from server_meta.
+// Returns nil if no selection is stored or admin service is unavailable.
+func (h *Handler) loadSelectedGUAs(ctx context.Context) []string {
+	if h.admin == nil {
+		return nil
+	}
+	raw, err := h.admin.GetSetting(ctx, "remote_access.ipv6.selected_guas")
+	if err != nil || raw == "" {
+		return nil
+	}
+	var guas []string
+	if err := json.Unmarshal([]byte(raw), &guas); err != nil {
+		h.log.Warn("invalid selected_guas JSON in server_meta", slog.String("err", err.Error()))
+		return nil
+	}
+	return guas
+}
+
 // buildIPv6URLs returns a list of server URLs constructed from the
 // detected IPv6 Global Unicast Addresses. When advertised is non-empty
-// it overrides auto-detection. scheme is derived from transportProfile.
-func buildIPv6URLs(r *http.Request, transportProfile, advertised string) []string {
+// it overrides auto-detection (config-level override). When selected is
+// non-empty and advertised is empty, only GUAs matching selected are
+// used (admin UI selection). When both are empty, all detected GUAs are
+// used (backward-compatible default).
+func buildIPv6URLs(r *http.Request, transportProfile, advertised string, selected []string) []string {
 	scheme := "https"
 	if transportProfile == "dev-plaintext" {
 		scheme = "http"
@@ -1220,9 +1247,24 @@ func buildIPv6URLs(r *http.Request, transportProfile, advertised string) []strin
 
 	var addrs []string
 	if advertised != "" {
+		// Config override takes priority.
 		addrs = append(addrs, advertised)
 	} else {
-		addrs = netutil.DetectIPv6GUAs()
+		detected := netutil.DetectIPv6GUAs()
+		if len(selected) > 0 {
+			// Filter detected GUAs to only admin-selected ones.
+			sel := make(map[string]struct{}, len(selected))
+			for _, s := range selected {
+				sel[s] = struct{}{}
+			}
+			for _, g := range detected {
+				if _, ok := sel[g]; ok {
+					addrs = append(addrs, g)
+				}
+			}
+		} else {
+			addrs = detected
+		}
 	}
 	if len(addrs) == 0 {
 		return nil

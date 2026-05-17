@@ -17,4 +17,7 @@ data class InfoDto(
     val capabilities: Map<String, Boolean>,
     val tls_fingerprint: String? = null,
     val commit: String? = null,
+    /** IPv6 remote access URLs selected by admin. Null when ipv6 mode is
+     *  not active or server version predates GUA selection. */
+    val ipv6_urls: List<String>? = null,
 )

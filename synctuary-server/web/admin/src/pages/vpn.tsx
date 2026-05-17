@@ -161,12 +161,39 @@ function DisabledSection() {
 
 function IPv6Section() {
   const [ipv6, setIPv6] = useState<{ guas: string[]; urls: string[]; tls_enabled: boolean } | null>(null)
+  const [allGuas, setAllGuas] = useState<string[]>([])
+  const [selectedGuas, setSelectedGuas] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     api.ipv6Status().then(res => {
       setIPv6({ guas: res.guas || [], urls: res.urls || [], tls_enabled: res.tls_enabled })
     }).catch(() => {})
+    api.ipv6SelectedGuas().then(res => {
+      setAllGuas(res.all_guas || [])
+      setSelectedGuas(res.selected_guas || [])
+    }).catch(() => {})
   }, [])
+
+  function toggleGua(gua: string) {
+    setSaved(false)
+    setSelectedGuas(prev =>
+      prev.includes(gua) ? prev.filter(g => g !== gua) : [...prev, gua]
+    )
+  }
+
+  async function saveSelection() {
+    setSaving(true)
+    try {
+      await api.updateIpv6SelectedGuas(selectedGuas)
+      setSaved(true)
+      // Refresh URLs to reflect the new selection.
+      const res = await api.ipv6Status()
+      setIPv6({ guas: res.guas || [], urls: res.urls || [], tls_enabled: res.tls_enabled })
+    } catch { /* ignore */ }
+    setSaving(false)
+  }
 
   return (
     <div class="space-y-4">
@@ -181,15 +208,37 @@ function IPv6Section() {
               </p>
             </div>
             <div>
-              <label class="text-xs text-gray-500 uppercase tracking-wide">{t('vpn.ipv6.detectedGuas')}</label>
-              {ipv6.guas.length === 0 ? (
+              <label class="text-xs text-gray-500 uppercase tracking-wide">{t('vpn.ipv6.selectGuas')}</label>
+              <p class="text-xs text-gray-500 mt-1 mb-2">{t('vpn.ipv6.selectGuasHint')}</p>
+              {allGuas.length === 0 ? (
                 <p class="text-sm text-yellow-400">{t('vpn.ipv6.noGua')}</p>
               ) : (
-                <ul class="space-y-1 mt-1">
-                  {ipv6.guas.map(g => (
-                    <li key={g} class="text-sm font-mono text-gray-300">{g}</li>
+                <div class="space-y-2 mt-1">
+                  {allGuas.map(g => (
+                    <label key={g} class="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedGuas.includes(g)}
+                        onChange={() => toggleGua(g)}
+                        class="w-4 h-4 rounded border-gray-600 bg-gray-800 text-brand-500 focus:ring-brand-500"
+                      />
+                      <span class="text-sm font-mono text-gray-300">{g}</span>
+                    </label>
                   ))}
-                </ul>
+                  <div class="flex items-center gap-3 mt-3">
+                    <button
+                      onClick={saveSelection}
+                      disabled={saving}
+                      class="px-4 py-1.5 bg-brand-600 hover:bg-brand-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+                    >
+                      {saving ? '...' : t('vpn.ipv6.saveSelection')}
+                    </button>
+                    {saved && <span class="text-sm text-green-400">{t('vpn.ipv6.saved')}</span>}
+                  </div>
+                  {selectedGuas.length === 0 && (
+                    <p class="text-xs text-gray-500 mt-1">{t('vpn.ipv6.allGuasDefault')}</p>
+                  )}
+                </div>
               )}
             </div>
             <div>
@@ -210,14 +259,50 @@ function IPv6Section() {
         )}
       </div>
 
-      <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <h3 class="text-sm font-semibold text-gray-400 mb-2">{t('vpn.ipv6.setupGuide')}</h3>
-        <ol class="text-sm text-gray-400 space-y-1 list-decimal list-inside">
-          <li>{t('vpn.ipv6.step1')}</li>
-          <li>{t('vpn.ipv6.step2', { configKey: 'server.tls_cert_path' })}</li>
-          <li>{t('vpn.ipv6.step3')}</li>
-          <li>{t('vpn.ipv6.step4')}</li>
-        </ol>
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-5">
+        <div>
+          <h3 class="text-sm font-semibold text-gray-400 mb-2">{t('vpn.ipv6.setupGuide')}</h3>
+          <ol class="text-sm text-gray-400 space-y-1 list-decimal list-inside">
+            <li>{t('vpn.ipv6.step1')}</li>
+            <li>{t('vpn.ipv6.step2', { configKey: 'server.tls_cert_path' })}</li>
+            <li>{t('vpn.ipv6.step3', { port: '8443' })}</li>
+            <li>{t('vpn.ipv6.step4')}</li>
+          </ol>
+        </div>
+
+        <hr class="border-gray-800" />
+
+        <div>
+          <h4 class="text-sm font-semibold text-white mb-2">{t('vpn.ipv6.firewallTitle')}</h4>
+
+          <div class="space-y-3">
+            <div>
+              <h5 class="text-xs font-semibold text-gray-300 mb-1">{t('vpn.ipv6.windowsFirewall')}</h5>
+              <p class="text-xs text-gray-400 mb-1">{t('vpn.ipv6.windowsFirewallDesc', { port: '8443' })}</p>
+              <code class="block text-xs bg-gray-950 text-green-400 p-2 rounded font-mono break-all select-all">
+                {t('vpn.ipv6.windowsFirewallCmd', { port: '8443' })}
+              </code>
+            </div>
+
+            <div>
+              <h5 class="text-xs font-semibold text-gray-300 mb-1">{t('vpn.ipv6.routerFirewall')}</h5>
+              <p class="text-xs text-gray-400 mb-2">{t('vpn.ipv6.routerFirewallDesc', { port: '8443' })}</p>
+              <ol class="text-xs text-gray-400 space-y-1 list-decimal list-inside">
+                <li>{t('vpn.ipv6.routerStep1')}</li>
+                <li>{t('vpn.ipv6.routerStep2')}</li>
+                <li>{t('vpn.ipv6.routerStep3', { port: '8443' })}</li>
+                <li>{t('vpn.ipv6.routerStep4')}</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <hr class="border-gray-800" />
+
+        <div>
+          <h4 class="text-sm font-semibold text-white mb-1">{t('vpn.ipv6.clientRequirements')}</h4>
+          <p class="text-xs text-gray-400">{t('vpn.ipv6.clientRequirementsDesc')}</p>
+        </div>
       </div>
     </div>
   )

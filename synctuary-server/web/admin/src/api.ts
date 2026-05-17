@@ -53,6 +53,8 @@ export const api = {
   remoteAccess: () => request<RemoteAccessStatus>('GET', '/remote-access'),
   updateRemoteAccess: (mode: string) => request<RemoteAccessUpdateResponse>('PUT', '/remote-access', { mode }),
   ipv6Status: () => request<IPv6Status>('GET', '/ipv6/status'),
+  ipv6SelectedGuas: () => request<IPv6SelectedGUAs>('GET', '/ipv6/selected-guas'),
+  updateIpv6SelectedGuas: (guas: string[]) => request<{ ok: boolean }>('PUT', '/ipv6/selected-guas', { selected_guas: guas }),
 
   // WireGuard peers
   wgPeers: () => request<WGPeersResponse>('GET', '/wireguard/peers'),
@@ -137,6 +139,11 @@ export interface IPv6Status {
   tls_enabled: boolean
   scheme: string
   urls: string[]
+}
+
+export interface IPv6SelectedGUAs {
+  selected_guas: string[] | null
+  all_guas: string[]
 }
 
 export interface WGPeer {
