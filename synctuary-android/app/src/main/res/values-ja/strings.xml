@@ -152,6 +152,7 @@
     <string name="settings_remote">リモート</string>
     <string name="settings_home_url">ホームURL</string>
     <string name="settings_remote_url">リモートURL</string>
+    <string name="settings_add_remote">リモートURLを追加</string>
     <string name="settings_not_set">未設定</string>
     <string name="settings_server">サーバー</string>
     <string name="settings_server_id">サーバーID</string>
