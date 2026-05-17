@@ -435,15 +435,8 @@ func (s *UploadSessionStore) CollectExpired(ctx context.Context, now int64) (int
 	return count, nil
 }
 
-// resolveRoot maps a PROTOCOL §1 user path into an absolute path under
-// the configured storage root, rejecting traversal attempts.
-func (s *UploadSessionStore) resolveRoot(userPath string) (string, error) {
-	return resolveRootAbs(s.root, userPath)
-}
-
-// resolveRootAbs is the stateless form of resolveRoot that accepts an
-// explicit root directory. Used by AppendChunk to honour the per-session
-// root_path stored at Init time.
+// resolveRootAbs maps a PROTOCOL §1 user path into an absolute path
+// under the given root, rejecting traversal attempts.
 func resolveRootAbs(root, userPath string) (string, error) {
 	clean := filepath.Clean("/" + strings.TrimPrefix(userPath, "/"))
 	abs := filepath.Join(root, clean)
