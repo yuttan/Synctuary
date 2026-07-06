@@ -47,7 +47,6 @@ import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import coil.request.ImageRequest
-import coil.size.Size as CoilSize
 import kotlinx.coroutines.launch
 
 /**
@@ -64,6 +63,14 @@ private enum class DisplayMode { FIT, FILL, ORIGINAL }
 
 private const val MIN_SCALE = 1f
 private const val MAX_SCALE = 5f
+
+// Bounding box for the decoded bitmap. Full-resolution (Size.ORIGINAL)
+// would OOM on large camera photos (a 48MP JPEG decodes to ~190MB) and
+// can exceed the GPU max texture dimension (typically 4096px), which
+// crashes hardware-bitmap rendering. 4096px keeps memory bounded
+// (~33MB worst case) while giving ORIGINAL (1:1) mode real pixels for
+// anything up to 4K — beyond that, 1:1 shows the max loaded resolution.
+private const val MAX_BITMAP_DIM = 4096
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -379,10 +386,12 @@ private fun ImagePage(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(url)
                 .crossfade(true)
-                // Load the full-resolution bitmap so intrinsicSize reports the
-                // real pixel dimensions for ORIGINAL (1:1) mode. Without this,
-                // Coil downsamples to the view size and 1:1 is meaningless.
-                .size(CoilSize.ORIGINAL)
+                // Decode up to MAX_BITMAP_DIM (not the view size) so
+                // intrinsicSize reports enough pixels for ORIGINAL (1:1)
+                // mode. Coil's default would downsample to the view size,
+                // making 1:1 meaningless; Size.ORIGINAL would OOM on large
+                // camera photos (see MAX_BITMAP_DIM).
+                .size(MAX_BITMAP_DIM)
                 .build(),
             imageLoader = viewModel.imageLoader,
             contentDescription = fileName,
