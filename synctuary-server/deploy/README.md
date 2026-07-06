@@ -1,10 +1,11 @@
 # Deploying Synctuary
 
-Three supported deployment modes, in increasing order of "I run this on real hardware":
+Four supported deployment modes, in increasing order of "I run this on real hardware":
 
 1. **[Docker / Compose](#docker-compose)** — single-host, easiest to reset
 2. **[systemd unit](#systemd)** — bare-metal Linux, the usual home-server setup
-3. **[Manual](#manual)** — run the binary directly; useful for development
+3. **[Windows installer](#windows)** — one-click setup for Windows testers
+4. **[Manual](#manual)** — run the binary directly; useful for development
 
 All three result in the same wire-protocol behaviour. Pick whichever fits how you already manage services on the box.
 
@@ -57,7 +58,7 @@ sudo chown -R 65532:65532 data tls
 
 Edit `config.yml`:
 - `server.name` — what shows up in the client app
-- `server.tls_cert_path` and `server.tls_key_path` — usually `/etc/synctuary/tls/server.crt` (matches the bind mount in `docker-compose.yml`)
+- `server.tls_cert_path` and `server.tls_key_path` — usually `/etc/synctuary/tls/server.crt` (matches the bind mount in `docker-compose.yml`). If these paths are set but the files don't exist, the server **auto-generates** an ECDSA P-256 self-signed cert with all LAN IPs as SANs on first startup.
 - Optional: lower `pairing.rate_limit_max` if you're paranoid
 
 ### Start
@@ -67,7 +68,7 @@ docker compose up -d
 docker compose logs -f synctuary
 ```
 
-The **first launch** prints a 24-word BIP-39 mnemonic to **stderr** exactly once. Record it offline (paper, password manager); subsequent launches will not show it.
+The **first launch** prints a 24-word BIP-39 mnemonic to **stderr** and shows it in the admin Web UI during initial setup. Record it offline (paper, password manager); it cannot be recovered after you acknowledge it or restart the server.
 
 ```
 INFO 24-word mnemonic: witch collapse practice feed shame open ...
@@ -180,6 +181,58 @@ sudo systemctl stop synctuary
 sudo rsync -aHAX --delete /var/lib/synctuary/ /backup/synctuary/
 sudo systemctl start synctuary
 ```
+
+---
+
+## Windows
+
+For third-party testers and Windows home-server setups. The Inno Setup installer packages the server binary with sensible defaults.
+
+### Build the installer
+
+```sh
+cd synctuary-server
+
+# 1. Build the admin frontend (required for go:embed)
+cd web/admin && npm ci && npm run build && cd ../..
+
+# 2. Build the server binary
+go build -ldflags="-X main.serverVersion=0.7.0 -X main.commit=$(git rev-parse --short HEAD)" \
+    -o synctuaryd.exe ./cmd/synctuaryd
+
+# 3. Compile the installer (requires Inno Setup 6)
+"C:\...\ISCC.exe" /DMyAppVersion=0.7.0 deploy/windows/synctuary.iss
+# Output: deploy/windows/output/SynctuarySetup-0.7.0.exe
+```
+
+### What the installer does
+
+- Installs to `%LOCALAPPDATA%\Synctuary` (no admin required)
+- Creates `data/files`, `data/staging`, `data/secret` directories
+- Includes `config.yml` with TLS auto-generation enabled
+- Start Menu shortcuts: "Start Synctuary Server" + "Open Admin Panel"
+- Optional desktop shortcut and Windows Firewall exception (port 8443)
+- Uninstaller included
+
+### First launch
+
+1. Run "Start Synctuary Server" from the Start Menu (or double-click `synctuaryd.exe`)
+2. The server auto-generates a self-signed TLS certificate (all LAN IPs + IPv6 as SANs)
+3. The system tray icon appears; open `https://localhost:8443/admin/`
+4. Set an admin password — the 24-word recovery seed phrase is displayed once
+5. **Write down the seed phrase** and click "I have saved my seed phrase"
+6. The dashboard appears; go to Pairing to connect your Android device
+
+### Enable IPv6 remote access
+
+Edit `%LOCALAPPDATA%\Synctuary\config.yml`:
+
+```yaml
+remote_access:
+  mode: "ipv6"
+```
+
+Restart the server. The auto-generated TLS cert already includes all IPv6 addresses.
 
 ---
 

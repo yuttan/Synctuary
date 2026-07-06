@@ -42,6 +42,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/crypto/hkdf"
 
+	"github.com/synctuary/synctuary-server/pkg/tlsgen"
+
 	icrypto "github.com/synctuary/synctuary-server/internal/adapter/infrastructure/crypto"
 	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/db"
 	"github.com/synctuary/synctuary-server/internal/adapter/infrastructure/fs"
@@ -62,7 +64,7 @@ import (
 // protocolVersion is the wire spec the server implements. It's a
 // hard property of the codebase (ABI), so it stays a const — never
 // override at link time.
-const protocolVersion = "0.2.3"
+const protocolVersion = "0.3.0"
 
 // serverVersion and commit are advertised via /api/v1/info and are
 // overridable at link time via:
@@ -113,7 +115,7 @@ func main() {
 
 	// ── master_key: load or first-run generate ────────────────────
 	secretStore := secret.NewFileStore(cfg.Storage.SecretPath)
-	masterKey, err := loadOrInitMasterKey(secretStore, logger)
+	masterKey, firstRunMnemonic, err := loadOrInitMasterKey(secretStore, logger)
 	if err != nil {
 		logger.Error("master_key init failed", "err", err)
 		fatalPause()
@@ -145,12 +147,23 @@ func main() {
 	}
 	logger.Info("migrations applied")
 
+	// ── TLS: auto-generate self-signed cert if paths are set but
+	//    files don't exist yet (first-run convenience) ─────────────
+	if cfg.Server.TLSCertPath != "" {
+		if err := tlsgen.GenerateIfMissing(cfg.Server.TLSCertPath, cfg.Server.TLSKeyPath, nil); err != nil {
+			logger.Error("tls auto-generate failed", "err", err)
+			fatalPause()
+			os.Exit(1)
+		}
+	}
+
 	// ── TLS fingerprint (nil when dev-plaintext) ──────────────────
 	var tlsFingerprint []byte
 	if cfg.Server.TLSCertPath != "" {
 		fp, ferr := loadTLSFingerprint(cfg.Server.TLSCertPath, cfg.Server.TLSKeyPath)
 		if ferr != nil {
 			logger.Error("tls fingerprint load failed", "err", ferr)
+			fatalPause()
 			os.Exit(1)
 		}
 		tlsFingerprint = fp
@@ -235,7 +248,11 @@ func main() {
 
 	// ── remote access mode: admin override + validation ───────────
 	// If the admin UI has persisted a mode override in server_meta,
-	// use it instead of the YAML config value.
+	// use it instead of the YAML config value. Track whether the
+	// override came from the admin UI so we can fall back gracefully
+	// instead of crashing (the user can't fix a DB-persisted setting
+	// if the server won't start).
+	adminModeOverride := false
 	if savedMode, serr := adminSvc.GetSetting(context.Background(), "remote_access.mode"); serr == nil && savedMode != "" {
 		if savedMode != cfg.RemoteAccess.Mode {
 			logger.Info("remote_access.mode overridden by admin setting",
@@ -243,6 +260,7 @@ func main() {
 				"admin", savedMode,
 			)
 			cfg.RemoteAccess.Mode = savedMode
+			adminModeOverride = true
 		}
 	}
 
@@ -253,15 +271,28 @@ func main() {
 	case "ipv6":
 		ipv6Addrs := netutil.DetectIPv6GUAs()
 		if len(ipv6Addrs) == 0 && cfg.RemoteAccess.IPv6.AdvertisedAddress == "" {
-			logger.Error("ipv6 mode: no GUA detected (set remote_access.ipv6.advertised_address to override)")
-			os.Exit(1)
-		}
-		if len(ipv6Addrs) > 0 {
-			logger.Info("ipv6 mode: detected GUAs", "addresses", ipv6Addrs)
-		}
-		if cfg.RemoteAccess.IPv6.RequireTLS && cfg.Server.TLSCertPath == "" {
-			logger.Error("ipv6 mode: TLS required but no cert configured (set server.tls_cert_path / remote_access.ipv6.require_tls=false)")
-			os.Exit(1)
+			if adminModeOverride {
+				logger.Warn("ipv6 mode: no GUA detected — running as disabled for this boot; the admin setting is kept and IPv6 resumes automatically once a GUA is available on restart")
+				cfg.RemoteAccess.Mode = "disabled"
+			} else {
+				logger.Error("ipv6 mode: no GUA detected (set remote_access.ipv6.advertised_address to override)")
+				fatalPause()
+				os.Exit(1)
+			}
+		} else {
+			if len(ipv6Addrs) > 0 {
+				logger.Info("ipv6 mode: detected GUAs", "addresses", ipv6Addrs)
+			}
+			if cfg.RemoteAccess.IPv6.RequireTLS && cfg.Server.TLSCertPath == "" {
+				if adminModeOverride {
+					logger.Warn("ipv6 mode: TLS required but no cert configured — running as disabled for this boot; the admin setting is kept and IPv6 resumes once TLS is configured")
+					cfg.RemoteAccess.Mode = "disabled"
+				} else {
+					logger.Error("ipv6 mode: TLS required but no cert configured (set server.tls_cert_path / remote_access.ipv6.require_tls=false)")
+					fatalPause()
+					os.Exit(1)
+				}
+			}
 		}
 
 	case "wireguard":
@@ -292,6 +323,7 @@ func main() {
 		serverKey, kerr := wg.LoadOrGenerateServerKey(cfg.RemoteAccess.WireGuard.PrivateKeyPath)
 		if kerr != nil {
 			logger.Error("wireguard server key init failed", "err", kerr)
+			fatalPause()
 			os.Exit(1)
 		}
 		logger.Info("wireguard server key loaded",
@@ -301,6 +333,7 @@ func main() {
 		alloc, aerr := wg.NewAllocator(cfg.RemoteAccess.WireGuard.Address)
 		if aerr != nil {
 			logger.Error("wireguard IPAM init failed", "err", aerr)
+			fatalPause()
 			os.Exit(1)
 		}
 
@@ -317,6 +350,7 @@ func main() {
 		})
 		if err != nil {
 			logger.Error("wireguard tunnel init failed", "err", err)
+			fatalPause()
 			os.Exit(1)
 		}
 		defer wgServer.Close()
@@ -325,6 +359,7 @@ func main() {
 		activePeers, perr := wgPeerRepo.ListActive(context.Background())
 		if perr != nil {
 			logger.Error("wireguard load peers failed", "err", perr)
+			fatalPause()
 			os.Exit(1)
 		}
 		if len(activePeers) > 0 {
@@ -339,6 +374,7 @@ func main() {
 			}
 			if perr := wgServer.SetPeers(peerConfigs); perr != nil {
 				logger.Error("wireguard set peers failed", "err", perr)
+				fatalPause()
 				os.Exit(1)
 			}
 		}
@@ -358,6 +394,7 @@ func main() {
 		})
 		if err != nil {
 			logger.Error("wireguard service init failed", "err", err)
+			fatalPause()
 			os.Exit(1)
 		}
 		logger.Info("wireguard service ready",
@@ -417,6 +454,7 @@ func main() {
 		ListenAddr:     cfg.Server.Addr,
 		TLSEnabled:     cfg.Server.TLSCertPath != "",
 		RemoteAccess:   cfg.RemoteAccess,
+		Mnemonic:       firstRunMnemonic,
 	})
 	if err != nil {
 		logger.Error("admin handler init failed", "err", err)
@@ -457,8 +495,9 @@ func main() {
 	// virtual TUN interface so VPN clients get the same API. Uses TLS
 	// if configured; otherwise plain HTTP (within the encrypted tunnel,
 	// so double-encryption is optional).
+	var wgHTTPServer *http.Server
 	if wgServer != nil {
-		wgHTTPServer := &http.Server{
+		wgHTTPServer = &http.Server{
 			Handler:      router,
 			ReadTimeout:  cfg.Server.ReadTimeout,
 			WriteTimeout: cfg.Server.WriteTimeout,
@@ -481,6 +520,7 @@ func main() {
 	case err := <-serverErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server exited with error", "err", err)
+			fatalPause()
 			os.Exit(1)
 		}
 	}
@@ -491,6 +531,11 @@ func main() {
 		logger.Error("graceful shutdown failed", "err", err)
 		fatalPause()
 		os.Exit(1)
+	}
+	if wgHTTPServer != nil {
+		if err := wgHTTPServer.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("wireguard HTTP shutdown failed", "err", err)
+		}
 	}
 	stopTray()
 	logger.Info("shutdown complete")
@@ -536,37 +581,38 @@ func newRouter(h *httpapi.Handler, ah *adminapi.Handler, logger *slog.Logger) ht
 
 // loadOrInitMasterKey loads master_key from secretStore; on first run
 // (domainsecret.ErrNotFound) it generates a fresh BIP-39 24-word
-// mnemonic, prints it to stdout, derives master_key, and persists it.
-// Any other error (e.g. permission denied) surfaces unchanged.
-func loadOrInitMasterKey(store *secret.FileStore, log *slog.Logger) ([]byte, error) {
+// mnemonic, prints it to stderr, derives master_key, and persists it.
+// The mnemonic is returned non-empty only on first run so the admin
+// UI can display it until the operator acknowledges it.
+func loadOrInitMasterKey(store *secret.FileStore, log *slog.Logger) ([]byte, string, error) {
 	ctx := context.Background()
 	key, err := store.LoadMasterKey(ctx)
 	if err == nil {
 		log.Info("master_key loaded")
-		return key, nil
+		return key, "", nil
 	}
 	if !errors.Is(err, domainsecret.ErrNotFound) {
-		return nil, fmt.Errorf("load master_key: %w", err)
+		return nil, "", fmt.Errorf("load master_key: %w", err)
 	}
 	// First-run path.
 	entropy, err := icrypto.GenerateRandomBytes(32)
 	if err != nil {
-		return nil, fmt.Errorf("entropy: %w", err)
+		return nil, "", fmt.Errorf("entropy: %w", err)
 	}
 	mnemonic, err := device.GenerateMnemonic(entropy)
 	if err != nil {
-		return nil, fmt.Errorf("mnemonic: %w", err)
+		return nil, "", fmt.Errorf("mnemonic: %w", err)
 	}
 	seed, err := device.MnemonicToSeed(mnemonic)
 	if err != nil {
-		return nil, fmt.Errorf("seed: %w", err)
+		return nil, "", fmt.Errorf("seed: %w", err)
 	}
 	key, err = icrypto.DeriveMasterKey(seed)
 	if err != nil {
-		return nil, fmt.Errorf("derive master_key: %w", err)
+		return nil, "", fmt.Errorf("derive master_key: %w", err)
 	}
 	if err := store.SaveMasterKey(ctx, key); err != nil {
-		return nil, fmt.Errorf("persist master_key: %w", err)
+		return nil, "", fmt.Errorf("persist master_key: %w", err)
 	}
 
 	// Mnemonic is displayed once on stderr. Operators MUST copy it
@@ -581,7 +627,7 @@ func loadOrInitMasterKey(store *secret.FileStore, log *slog.Logger) ([]byte, err
 	fmt.Fprintln(os.Stderr, " "+mnemonic)
 	fmt.Fprintln(os.Stderr, "════════════════════════════════════════════════════")
 
-	return key, nil
+	return key, mnemonic, nil
 }
 
 // deriveServerID produces a stable 16-byte ID from the master key. No

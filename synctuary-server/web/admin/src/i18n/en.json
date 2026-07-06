@@ -43,6 +43,11 @@
     "minLength": "Password must be at least 8 characters",
     "mismatch": "Passwords do not match"
   },
+  "seedPhrase": {
+    "title": "Recovery Seed Phrase",
+    "warning": "This 24-word seed phrase is the master key to your server. Write it down and store it in a safe place. It will NOT be shown again after you close this page or restart the server.",
+    "acknowledge": "I have saved my seed phrase"
+  },
   "dashboard": {
     "title": "Dashboard",
     "loadingStats": "Loading stats...",

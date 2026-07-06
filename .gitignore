@@ -39,6 +39,9 @@ master_key.bin
 *.pem
 *.key
 *.crt
+# Stray notes that may contain seed phrases (Windows "New Text Document")
+synctuary-server/新規*.txt
+*seed*.txt
 # Local dev configs
 config.local.yaml
 config.local.yml

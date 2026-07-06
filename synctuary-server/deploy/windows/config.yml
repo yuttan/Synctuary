@@ -1,0 +1,36 @@
+# Synctuary server — Windows default configuration
+#
+# All paths are relative to the directory containing synctuaryd.exe.
+# TLS certificates are auto-generated on first startup.
+
+server:
+  addr: ":8443"
+  name: "Synctuary"
+
+  # Self-signed TLS cert (auto-generated on first run if missing).
+  # All local LAN IPs and IPv6 addresses are included as SANs.
+  tls_cert_path: "data/tls/server.crt"
+  tls_key_path:  "data/tls/server.key"
+
+storage:
+  root_path:    "data/files"
+  staging_path: "data/staging"
+  secret_path:  "data/secret/master_key"
+
+database:
+  path: "data/meta.db"
+
+upload:
+  chunk_size:     2097152   # 2 MiB
+  chunk_size_max: 33554432  # 32 MiB
+  session_ttl:    24h
+
+remote_access:
+  # "disabled" = LAN only (default)
+  # "ipv6"    = IPv6 direct access from outside
+  # To enable IPv6 remote access, change to "ipv6":
+  mode: "disabled"
+
+log:
+  level: "info"
+  format: "text"

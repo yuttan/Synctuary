@@ -228,6 +228,19 @@ private fun SynctuaryNavHost() {
                 )
             }
 
+            // QR scanner from Settings (remote URL capture)
+            composable(NavRoute.SettingsQrScanner.route) {
+                QrScannerScreen(
+                    onScanned = { url ->
+                        navController.previousBackStackEntry
+                            ?.savedStateHandle
+                            ?.set("scannedRemoteUrl", url)
+                        navController.popBackStack()
+                    },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+
             composable(NavRoute.Mnemonic.route) {
                 MnemonicScreen(
                     viewModel = onboardingVm,
@@ -298,13 +311,26 @@ private fun SynctuaryNavHost() {
                 )
             }
 
-            composable(NavRoute.TabSettings.route) {
+            composable(NavRoute.TabSettings.route) { backStackEntry ->
+                // Observe as state so returning from the QR scanner (which
+                // writes into this entry's savedStateHandle) recomposes and
+                // re-fires the LaunchedEffect in SettingsScreen.
+                val scannedUrl by backStackEntry.savedStateHandle
+                    .getStateFlow<String?>("scannedRemoteUrl", null)
+                    .collectAsState()
                 SettingsScreen(
                     viewModel = settingsVm,
                     onUnpaired = {
                         navController.navigate(NavRoute.ServerUrl.route) {
                             popUpTo(0) { inclusive = true }
                         }
+                    },
+                    onScanQr = {
+                        navController.navigate(NavRoute.SettingsQrScanner.route)
+                    },
+                    scannedUrl = scannedUrl,
+                    onScannedUrlConsumed = {
+                        backStackEntry.savedStateHandle["scannedRemoteUrl"] = null
                     },
                 )
             }
