@@ -113,7 +113,9 @@ func TestGenerateIfMissing_PartialState(t *testing.T) {
 	certPath := filepath.Join(dir, "server.crt")
 	keyPath := filepath.Join(dir, "server.key")
 
-	os.WriteFile(certPath, []byte("dummy"), 0600)
+	if err := os.WriteFile(certPath, []byte("dummy"), 0600); err != nil {
+		t.Fatalf("seed cert file: %v", err)
+	}
 
 	err := GenerateIfMissing(certPath, keyPath, nil)
 	if err == nil {
