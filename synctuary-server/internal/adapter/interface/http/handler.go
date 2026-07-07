@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"path"
@@ -67,6 +68,7 @@ type Handler struct {
 	pairing     *usecase.PairingService
 	files       *usecase.FileService
 	thumbnails  *usecase.ThumbnailService
+	transcoder  *usecase.TranscodeService
 	devices     *usecase.DeviceService
 	favorites   *usecase.FavoriteService
 	shares      *usecase.ShareService
@@ -95,6 +97,7 @@ type HandlerConfig struct {
 	Pairing          *usecase.PairingService
 	Files            *usecase.FileService
 	Thumbnails       *usecase.ThumbnailService
+	Transcoder       *usecase.TranscodeService
 	Devices          *usecase.DeviceService
 	Favorites        *usecase.FavoriteService
 	Shares           *usecase.ShareService
@@ -130,6 +133,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		pairing:          cfg.Pairing,
 		files:            cfg.Files,
 		thumbnails:       cfg.Thumbnails,
+		transcoder:       cfg.Transcoder,
 		devices:          cfg.Devices,
 		favorites:        cfg.Favorites,
 		shares:           cfg.Shares,
@@ -167,6 +171,7 @@ func (h *Handler) Register(r chi.Router) {
 		r.Delete("/api/v1/files", h.FilesDelete)
 		r.Get("/api/v1/files/content", h.FilesContent)
 		r.Get("/api/v1/files/thumbnail", h.FilesThumbnail)
+		r.Get("/api/v1/files/transcode", h.FilesTranscode)
 
 		r.Post("/api/v1/files/upload/init", h.UploadInit)
 		r.Put("/api/v1/files/upload/{id}", h.UploadChunk)
@@ -533,6 +538,77 @@ func (h *Handler) FilesThumbnail(w http.ResponseWriter, r *http.Request) {
 }
 
 const DefaultThumbSize = 256
+
+// ──────────────────────────────────────────────────────────────────
+// §6.6 GET /api/v1/files/transcode — on-the-fly video transcoding
+// ──────────────────────────────────────────────────────────────────
+
+// FilesTranscode streams a legacy-format video re-encoded to
+// fragmented MP4 (H.264/AAC) so clients whose native decoders can't
+// play the source container/codec (AVI, FLV, WMV, VOB, …) can still
+// play it. The response is a progressive, non-seekable stream; the
+// client seeks coarsely by re-requesting with a new `start` offset.
+// Capability-gated: `transcode` in /info advertises availability.
+func (h *Handler) FilesTranscode(w http.ResponseWriter, r *http.Request) {
+	p, ok := validatedPath(w, r.URL.Query().Get("path"))
+	if !ok {
+		return
+	}
+
+	if h.transcoder == nil || !h.transcoder.Available() {
+		WriteError(w, http.StatusServiceUnavailable, "transcoder_unavailable", "server has no transcoder (ffmpeg not installed)")
+		return
+	}
+
+	// start: optional non-negative float seconds for coarse seeking.
+	var start float64
+	if s := r.URL.Query().Get("start"); s != "" {
+		v, err := strconv.ParseFloat(s, 64)
+		if err != nil || v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+			WriteError(w, http.StatusBadRequest, "bad_request", "start must be a non-negative number of seconds")
+			return
+		}
+		start = v
+	}
+
+	storage, _, ok := h.resolveShareStorage(w, r)
+	if !ok {
+		return
+	}
+
+	// Headers must be set before any body byte is written. Once
+	// Stream() begins copying, the status is committed and errors can
+	// only be logged, not re-headered.
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Accept-Ranges", "none")
+
+	svc := h.transcoder.WithStorage(storage)
+	err := svc.Stream(r.Context(), p, start, w)
+	if err == nil {
+		return
+	}
+
+	// Map pre-stream failures to a status. Because Stream() calls
+	// Stat/Resolve/validation BEFORE it writes any output, these error
+	// mappings still emit a clean status when nothing has been sent.
+	switch {
+	case errors.Is(err, dfile.ErrFileNotFound):
+		WriteError(w, http.StatusNotFound, "not_found", "file does not exist")
+	case errors.Is(err, usecase.ErrTranscodeUnsupported):
+		WriteError(w, http.StatusBadRequest, "unsupported_type", "file is not a video")
+	case errors.Is(err, usecase.ErrTranscoderUnavailable):
+		WriteError(w, http.StatusServiceUnavailable, "transcoder_unavailable", "server has no transcoder (ffmpeg not installed)")
+	case errors.Is(err, context.Canceled):
+		// Client disconnected mid-stream — expected, not an error.
+		h.log.Debug("transcode canceled by client", slog.String("path", p))
+	default:
+		// A failure after streaming started: the header/status is
+		// already committed, so WriteError would be a no-op with a
+		// spurious log. Just log the ffmpeg error for diagnosis.
+		h.log.Warn("transcode stream", slog.String("path", p), slog.String("err", err.Error()))
+	}
+}
 
 // ──────────────────────────────────────────────────────────────────
 // §6.3.1 POST /api/v1/files/upload/init

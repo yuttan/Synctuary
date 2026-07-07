@@ -1,11 +1,13 @@
 # Synctuary Protocol Specification
 
-**Version**: 0.3.0
-**Date**: 2026-05-08
+**Version**: 0.3.1
+**Date**: 2026-07-07
 **Status**: Final
 **License**: CC-BY-4.0
 
 This document defines the wire protocol between Synctuary clients and servers. Third-party implementations of clients or servers conforming to this specification are welcome.
+
+**Changes from v0.3.0 Final**: Added §6.6 Transcode (`GET /api/v1/files/transcode`) — an OPTIONAL, capability-gated endpoint that re-encodes legacy video formats to a streamable fragmented-MP4 (H.264/AAC) so clients whose native decoders cannot play the source container/codec can still play it. Added the `transcode` capability flag. No wire-incompatible changes; clients that do not implement transcode are fully compatible with a server that advertises it.
 
 **Changes from v0.2.3 Final**: Added §10 Shares (multi-drive support — clients discover available drives via `GET /api/v1/shares`; file operations gain an optional `share` query parameter) and §11 Pins (per-device Quick Access bookmarks). Added `shares` and `pins` capabilities. Renumbered §12–15. Updated version to v0.3.0.
 
@@ -218,7 +220,8 @@ Unauthenticated. Used for discovery and capability negotiation.
     "parallel_upload": false,
     "if_none_match": false,
     "shares": true,
-    "pins": true
+    "pins": true,
+    "transcode": true
   }
 }
 ```
@@ -227,6 +230,7 @@ Unauthenticated. Used for discovery and capability negotiation.
 - `transport_profile` ∈ `{"dev-plaintext", "tls-ca-verified", "tls-self-signed"}` (see §12).
 - `tls_fingerprint` is the SHA-256 of the server's TLS leaf certificate (DER-encoded), lowercase hex. Omitted when `transport_profile == "dev-plaintext"`.
 - `capabilities` contains boolean flags only. Capability names are additive-only across versions; removal of a capability requires a major version bump (`/api/v2/…`).
+- `transcode` (added v0.3.1) advertises support for the OPTIONAL on-the-fly video transcode endpoint (§6.6). A server that lacks a transcoder MUST advertise `"transcode": false`.
 
 ## 6. File Operations (Standard Mode)
 
@@ -499,6 +503,40 @@ Rename or move a file or directory.
 | 400 | `bad_request` | `from` and `to` resolve to the same path, or either is invalid |
 
 Moves MUST be atomic when source and destination are on the same volume; servers MAY fall back to copy-then-delete across volumes and SHOULD document this behavior.
+
+### 6.6 `GET /api/v1/files/transcode` (Optional)
+
+Streams a **live-transcoded** copy of a video file, re-encoded on the fly to a progressive fragmented-MP4 container (H.264 video / AAC audio). This exists so clients whose native decoders or extractors cannot play the source container/codec — for example AVI, FLV, WMV, or VOB, and MPEG-2/DivX/WMV-encoded streams generally — can still play the file without the server maintaining a persistent transcoded copy.
+
+This endpoint is **OPTIONAL**. Availability is advertised by the `transcode` capability flag in `GET /api/v1/info` (§5). Servers without a transcoder (e.g. no `ffmpeg` available) advertise `"transcode": false` and MUST return `503 transcoder_unavailable` if the endpoint is nonetheless invoked. Clients MUST NOT depend on this endpoint being present.
+
+**Query parameters:**
+
+- `path` (required) — the source video path (§1 rules apply).
+- `share` (optional) — scopes the operation to a named share (§10). Defaults to the default share.
+- `start` (optional, default `0`) — a **non-negative** number of seconds at which to begin transcoding, used for coarse seeking. Fractional values are permitted. Negative, `NaN`, or infinite values MUST be rejected with `400 bad_request`.
+
+**Response (200):**
+
+- `Content-Type: video/mp4`
+- `Cache-Control: no-store`
+- `Accept-Ranges: none`
+- **No `Content-Length`** — the body is a chunked, progressively generated stream of unknown final length.
+
+The body is a fragmented MP4 (`frag_keyframe+empty_moov`) suitable for playback directly from the stream as bytes arrive. It is **not seekable** by HTTP range requests (`Range` is not honored; `Accept-Ranges: none`). To seek, the client re-requests the endpoint with a new `start` offset and treats the returned stream as beginning at that offset (the displayed position is `start` plus the player's stream-local position). Because the source duration is not conveyed in-band, clients that need a total duration SHOULD obtain it from a prior direct-playback attempt or a metadata probe; otherwise the seek bar MAY be disabled.
+
+Transcoding begins as soon as the request is received and terminates when the client disconnects (the server SHOULD kill the underlying encoder on connection close to avoid orphaned work).
+
+**Errors:**
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `bad_request` | invalid `path`, `share`, or `start` |
+| 400 | `unsupported_type` | `path` is not a video file |
+| 404 | `not_found` | `path` does not exist |
+| 503 | `transcoder_unavailable` | server has no transcoder (endpoint not supported on this deployment) |
+
+Note: because the response is streamed, an encoder failure that occurs **after** the first bytes have been delivered cannot change the already-committed `200` status; the server logs the failure and the stream simply ends. Clients SHOULD treat an unexpectedly short/truncated transcode stream as a playback error.
 
 ## 7. Device Management
 
@@ -1038,4 +1076,4 @@ Third-party implementations SHOULD set a descriptive `Server:` (responses) or `U
 
 ---
 
-*End of Synctuary Protocol Specification v0.3.0.*
+*End of Synctuary Protocol Specification v0.3.1.*
