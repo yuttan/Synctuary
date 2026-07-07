@@ -159,11 +159,13 @@ fun MediaPreviewScreen(
 
     // Get or build ExoPlayer — survives config changes (orientation, fullscreen)
     // because the ViewModel holds the player across recompositions (#5).
-    // Keyed on transcodeActive so that when the VM rebuilds the player for
-    // server-side transcode fallback, we re-read the new live instance and
-    // re-bind it to the PlayerView / gesture handlers.
+    // Keyed on playerGeneration: the VM bumps it on EVERY player instance
+    // swap (transcode fallback and transcode seek-by-restart), so we always
+    // re-read the live instance and re-bind it to the PlayerView. Keying on
+    // transcodeActive alone would miss seek restarts and leave the view
+    // attached to a released player (frozen video).
     val contentUrl = videoPlayerVm.contentUrl(remotePath)
-    val exoPlayer = remember(state.transcodeActive) {
+    val exoPlayer = remember(state.playerGeneration) {
         videoPlayerVm.getOrBuildPlayer(remotePath, contentUrl)
     }
 

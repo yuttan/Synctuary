@@ -41,6 +41,12 @@ data class PlayerState(
     // True once we have fallen back to server-side transcode playback for
     // this file (the source container/codec was unplayable directly).
     val transcodeActive: Boolean = false,
+    // Bumped every time the VM swaps the underlying ExoPlayer instance
+    // (transcode fallback AND transcode seek-by-restart). The UI keys its
+    // remembered player reference on this so the PlayerView re-binds to
+    // the live instance — keying on transcodeActive alone misses seek
+    // restarts, leaving the view attached to a released player.
+    val playerGeneration: Int = 0,
 )
 
 data class ABLoopState(
@@ -86,6 +92,10 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     // when unknown (then the transcode seek bar is hidden).
     private var knownDurationMs: Long = C.TIME_UNSET
 
+    // Mirrors PlayerState.playerGeneration; incremented on every player
+    // instance swap so the UI re-binds.
+    private var playerGeneration: Int = 0
+
     /**
      * Return the existing player if it's already playing this path,
      * otherwise create a new one. This prevents player recreation on
@@ -126,6 +136,11 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         val player = ExoPlayer.Builder(getApplication())
             .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
             .build()
+
+        // New live instance: bump the generation so the UI's remembered
+        // player reference (keyed on it) re-reads and re-binds.
+        playerGeneration++
+        _playerState.update { it.copy(playerGeneration = playerGeneration) }
 
         player.setMediaItem(MediaItem.fromUri(uri))
         player.prepare()
