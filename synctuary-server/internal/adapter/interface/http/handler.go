@@ -172,6 +172,7 @@ func (h *Handler) Register(r chi.Router) {
 		r.Get("/api/v1/files/content", h.FilesContent)
 		r.Get("/api/v1/files/thumbnail", h.FilesThumbnail)
 		r.Get("/api/v1/files/transcode", h.FilesTranscode)
+		r.Get("/api/v1/files/mediainfo", h.FilesMediaInfo)
 
 		r.Post("/api/v1/files/upload/init", h.UploadInit)
 		r.Put("/api/v1/files/upload/{id}", h.UploadChunk)
@@ -624,6 +625,59 @@ func (h *Handler) FilesTranscode(w http.ResponseWriter, r *http.Request) {
 		// spurious log. Just log the ffmpeg error for diagnosis.
 		h.log.Warn("transcode stream", slog.String("path", p), slog.String("err", err.Error()))
 	}
+}
+
+// ──────────────────────────────────────────────────────────────────
+// §6.7 GET /api/v1/files/mediainfo — probe duration + dimensions
+// ──────────────────────────────────────────────────────────────────
+
+// FilesMediaInfo returns coarse media metadata (duration + pixel
+// dimensions) for a video via ffprobe. The Android client fetches this
+// on transcode fallback: unplayable containers error in ExoPlayer before
+// any duration is known, leaving the transcode seek bar disabled. This
+// endpoint supplies the duration so the seek bar (and seek-by-restart /
+// seek-preview) can be enabled. The value is stable for a given file, so
+// it is aggressively client-cacheable.
+func (h *Handler) FilesMediaInfo(w http.ResponseWriter, r *http.Request) {
+	p, ok := validatedPath(w, r.URL.Query().Get("path"))
+	if !ok {
+		return
+	}
+
+	if h.transcoder == nil {
+		WriteError(w, http.StatusServiceUnavailable, "transcoder_unavailable", "server has no transcoder (ffprobe not installed)")
+		return
+	}
+
+	storage, _, ok := h.resolveShareStorage(w, r)
+	if !ok {
+		return
+	}
+
+	svc := h.transcoder.WithStorage(storage)
+	info, err := svc.Probe(r.Context(), p)
+	if err != nil {
+		switch {
+		case errors.Is(err, dfile.ErrFileNotFound):
+			WriteError(w, http.StatusNotFound, "not_found", "file does not exist")
+		case errors.Is(err, usecase.ErrTranscodeUnsupported):
+			WriteError(w, http.StatusBadRequest, "unsupported_type", "file is not a video")
+		case errors.Is(err, usecase.ErrTranscoderUnavailable):
+			WriteError(w, http.StatusServiceUnavailable, "transcoder_unavailable", "server has no transcoder (ffprobe not installed)")
+		default:
+			h.log.Warn("mediainfo probe", slog.String("path", p), slog.String("err", err.Error()))
+			WriteError(w, http.StatusInternalServerError, "internal_error", "mediainfo probe failed")
+		}
+		return
+	}
+
+	// Duration doesn't change for a given file → aggressive private cache.
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"duration": info.DurationSeconds,
+		"width":    info.Width,
+		"height":   info.Height,
+	})
 }
 
 // ──────────────────────────────────────────────────────────────────

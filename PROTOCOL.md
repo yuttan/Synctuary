@@ -7,7 +7,7 @@
 
 This document defines the wire protocol between Synctuary clients and servers. Third-party implementations of clients or servers conforming to this specification are welcome.
 
-**Changes from v0.3.0 Final**: Added §6.6 Transcode (`GET /api/v1/files/transcode`) — an OPTIONAL, capability-gated endpoint that re-encodes legacy video formats to a streamable fragmented-MP4 (H.264/AAC) so clients whose native decoders cannot play the source container/codec can still play it. Added the `transcode` capability flag. Documented §6.7 Thumbnail (`GET /api/v1/files/thumbnail`) and added its OPTIONAL `t` query parameter — a non-negative number of seconds selecting a video frame at an arbitrary timestamp for seek-preview / scrubbing thumbnails; `t > 0` is video-only and served uncached server-side. No wire-incompatible changes; clients that do not implement these features are fully compatible with a server that advertises them.
+**Changes from v0.3.0 Final**: Added §6.6 Transcode (`GET /api/v1/files/transcode`) — an OPTIONAL, capability-gated endpoint that re-encodes legacy video formats to a streamable fragmented-MP4 (H.264/AAC) so clients whose native decoders cannot play the source container/codec can still play it. Added the `transcode` capability flag. Documented §6.7 Thumbnail (`GET /api/v1/files/thumbnail`) and added its OPTIONAL `t` query parameter — a non-negative number of seconds selecting a video frame at an arbitrary timestamp for seek-preview / scrubbing thumbnails; `t > 0` is video-only and served uncached server-side. Added §6.8 MediaInfo (`GET /api/v1/files/mediainfo`) — an OPTIONAL endpoint (sharing the `transcode` capability flag) that returns a video's duration and dimensions via a metadata probe, so clients can enable the seek bar during transcode playback where the source duration is otherwise unavailable in-band. No wire-incompatible changes; clients that do not implement these features are fully compatible with a server that advertises them.
 
 **Changes from v0.2.3 Final**: Added §10 Shares (multi-drive support — clients discover available drives via `GET /api/v1/shares`; file operations gain an optional `share` query parameter) and §11 Pins (per-device Quick Access bookmarks). Added `shares` and `pins` capabilities. Renumbered §12–15. Updated version to v0.3.0.
 
@@ -563,6 +563,42 @@ Transcoding begins as soon as the request is received and terminates when the cl
 | 503 | `transcoder_unavailable` | server has no transcoder (endpoint not supported on this deployment) |
 
 Note: because the response is streamed, an encoder failure that occurs **after** the first bytes have been delivered cannot change the already-committed `200` status; the server logs the failure and the stream simply ends. Clients SHOULD treat an unexpectedly short/truncated transcode stream as a playback error.
+
+### 6.8 `GET /api/v1/files/mediainfo` (Optional)
+
+Returns coarse media metadata — total **duration** and source pixel **dimensions** — for a video file, obtained via a metadata probe (`ffprobe`). This companions §6.6: when a client falls back to transcode playback, its media engine typically errors while parsing the unplayable source container *before* any duration becomes available in-band, and the §6.6 stream itself does not convey the source duration. This endpoint supplies the duration out-of-band so the client can enable its seek bar (and coarse seek-by-restart) during transcode playback.
+
+This endpoint is **OPTIONAL** and shares the `transcode` capability flag (§5) with §6.6. A server whose transcoder toolchain lacks a probe (`ffprobe` not present) MUST return `503 transcoder_unavailable`. Clients MUST NOT depend on this endpoint being present and MUST tolerate its absence (keeping the seek bar disabled).
+
+**Query parameters:**
+
+- `path` (required) — the source video path (§1 rules apply).
+- `share` (optional) — scopes the operation to a named share (§10). Defaults to the default share.
+
+**Response (200):**
+
+- `Content-Type: application/json`
+- `Cache-Control: private, max-age=86400` — a file's duration and dimensions do not change, so the response is aggressively client-cacheable.
+
+```json
+{
+  "duration": 123.456,
+  "width": 1920,
+  "height": 1080
+}
+```
+
+- `duration` — total media duration in **seconds** (fractional). `0` when the container reports no duration (the client MUST treat `0` as "unknown" and keep the seek bar disabled).
+- `width`, `height` — source video pixel dimensions. `0` for audio-only inputs (no video stream).
+
+**Errors:**
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `bad_request` | invalid `path` or `share` |
+| 400 | `unsupported_type` | `path` is not a video file |
+| 404 | `not_found` | `path` does not exist |
+| 503 | `transcoder_unavailable` | server has no probe (`ffprobe` not available) |
 
 ## 7. Device Management
 
