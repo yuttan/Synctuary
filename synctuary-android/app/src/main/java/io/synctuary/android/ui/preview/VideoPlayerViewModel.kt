@@ -12,11 +12,14 @@ import androidx.media3.common.VideoSize
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Request
 
 /**
  * ViewModel managing ExoPlayer lifecycle, playback state, and resume positions.
@@ -263,6 +266,52 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         }
         exoPlayer = buildPlayerInternal(path, transcodeUrl(path, startSeconds), transcode = true)
+
+        // On the FIRST fallback (triggered from onPlayerError at offset 0), the
+        // direct attempt may have died during container parsing before any
+        // duration was known — leaving the seek bar disabled. Fetch the
+        // duration out-of-band from the server so the slider, seek-preview
+        // bubble, and seek-by-restart all enable. Skip on seek-restarts
+        // (startSeconds > 0), which reuse the already-known duration.
+        if (startSeconds == 0L && knownDurationMs <= 0L) {
+            viewModelScope.launch {
+                val ms = fetchMediaInfo(path) ?: return@launch
+                if (ms > 0L) {
+                    knownDurationMs = ms
+                    // The player may have been released while we awaited (screen
+                    // closed); updating state is still safe — the UI re-reads it
+                    // on recomposition and the seek bar enables reactively.
+                    _playerState.update { it.copy(duration = knownDurationMs) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Fetch the video's total duration (in ms) from the server's mediainfo
+     * endpoint (PROTOCOL §6.8). Used only for transcode playback of
+     * unplayable containers, where ExoPlayer never learns the duration
+     * directly. Returns null on any failure (endpoint absent, non-video,
+     * network error) so the caller simply leaves the seek bar disabled.
+     */
+    private suspend fun fetchMediaInfo(path: String): Long? = withContext(Dispatchers.IO) {
+        try {
+            val paired = secretStore.loadPairedDevice() ?: return@withContext null
+            val base = paired.serverUrl.trimEnd('/')
+            val shareParam = currentShareId?.let { "&share=${android.net.Uri.encode(it)}" } ?: ""
+            val url = "$base/api/v1/files/mediainfo?path=${android.net.Uri.encode(path)}$shareParam"
+
+            val request = Request.Builder().url(url).get().build()
+            authenticatedClient.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val bodyStr = resp.body?.string() ?: return@withContext null
+                val json = org.json.JSONObject(bodyStr)
+                val seconds = json.optDouble("duration", 0.0)
+                if (seconds > 0.0) (seconds * 1000.0).toLong() else null
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun updateProgress() {
