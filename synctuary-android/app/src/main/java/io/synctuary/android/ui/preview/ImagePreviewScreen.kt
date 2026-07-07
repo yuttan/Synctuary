@@ -1,13 +1,20 @@
 package io.synctuary.android.ui.preview
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
@@ -19,7 +26,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -38,6 +44,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -102,14 +109,53 @@ fun ImagePreviewScreen(
     var currentPageZoomed by remember { mutableStateOf(false) }
     // Display mode requested from the top bar; applied to the visible page.
     var displayMode by remember { mutableStateOf(DisplayMode.FIT) }
+    // Chrome (top bar) is hidden by default; a single tap on the image toggles
+    // it so tall/zoomed images are never covered.
+    var chromeVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(pagerState.currentPage) {
         currentPageZoomed = false
         displayMode = DisplayMode.FIT
     }
 
-    Scaffold(
-        topBar = {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            userScrollEnabled = !currentPageZoomed,
+            modifier = Modifier.fillMaxSize(),
+        ) { page ->
+            val pagePath = paths[page]
+            val url = viewModel.contentUrl(pagePath)
+            // Only the currently-visible page reports its zoom state and reacts
+            // to the shared display mode; off-screen pages keep FIT so their
+            // remembered zoom state resets when swiped back into view.
+            val isActivePage = page == pagerState.currentPage
+            ImagePage(
+                url = url,
+                fileName = pagePath.substringAfterLast('/'),
+                viewModel = viewModel,
+                displayMode = if (isActivePage) displayMode else DisplayMode.FIT,
+                onZoomChanged = { zoomed ->
+                    if (isActivePage) currentPageZoomed = zoomed
+                },
+                onTap = { chromeVisible = !chromeVisible },
+            )
+        }
+
+        // Top bar overlays the image (does not occupy layout space) and
+        // fades in/out on tap. Material3 TopAppBar handles status-bar insets.
+        AnimatedVisibility(
+            visible = chromeVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth(),
+        ) {
             TopAppBar(
                 title = {
                     Text(
@@ -133,31 +179,6 @@ fun ImagePreviewScreen(
                     actionIconContentColor = Color.White,
                 ),
             )
-        },
-    ) { padding ->
-        HorizontalPager(
-            state = pagerState,
-            userScrollEnabled = !currentPageZoomed,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(Color.Black),
-        ) { page ->
-            val pagePath = paths[page]
-            val url = viewModel.contentUrl(pagePath)
-            // Only the currently-visible page reports its zoom state and reacts
-            // to the shared display mode; off-screen pages keep FIT so their
-            // remembered zoom state resets when swiped back into view.
-            val isActivePage = page == pagerState.currentPage
-            ImagePage(
-                url = url,
-                fileName = pagePath.substringAfterLast('/'),
-                viewModel = viewModel,
-                displayMode = if (isActivePage) displayMode else DisplayMode.FIT,
-                onZoomChanged = { zoomed ->
-                    if (isActivePage) currentPageZoomed = zoomed
-                },
-            )
         }
     }
 }
@@ -173,9 +194,33 @@ private fun SingleImagePreview(
     val contentUrl = viewModel.contentUrl(remotePath)
 
     var displayMode by remember { mutableStateOf(DisplayMode.FIT) }
+    // Chrome (top bar) is hidden by default; a single tap toggles it.
+    var chromeVisible by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        ImagePage(
+            url = contentUrl,
+            fileName = fileName,
+            viewModel = viewModel,
+            displayMode = displayMode,
+            onZoomChanged = {},
+            onTap = { chromeVisible = !chromeVisible },
+        )
+
+        // Top bar overlays the image and fades in/out on tap.
+        AnimatedVisibility(
+            visible = chromeVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth(),
+        ) {
             TopAppBar(
                 title = {
                     Text(text = fileName, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -194,22 +239,6 @@ private fun SingleImagePreview(
                     navigationIconContentColor = Color.White,
                     actionIconContentColor = Color.White,
                 ),
-            )
-        },
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(Color.Black),
-            contentAlignment = Alignment.Center,
-        ) {
-            ImagePage(
-                url = contentUrl,
-                fileName = fileName,
-                viewModel = viewModel,
-                displayMode = displayMode,
-                onZoomChanged = {},
             )
         }
     }
@@ -254,6 +283,8 @@ private fun DisplayModeButton(mode: DisplayMode, onCycle: (DisplayMode) -> Unit)
  *   still allowed (mode is a jump-to, not a lock).
  * @param onZoomChanged reports whether the page is currently zoomed (scale > 1)
  *   so the parent pager can disable horizontal swipe.
+ * @param onTap single-tap callback (distinct from double-tap); the parent uses
+ *   it to toggle the overlay chrome.
  */
 @Composable
 private fun ImagePage(
@@ -262,6 +293,7 @@ private fun ImagePage(
     viewModel: PreviewViewModel,
     displayMode: DisplayMode,
     onZoomChanged: (Boolean) -> Unit,
+    onTap: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -329,30 +361,59 @@ private fun ImagePage(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            // Pinch/pan detector. onZoomChanged / clamping read the hoisted
-            // state; nothing is remembered inside this block.
+            // Custom transform loop. detectTransformGestures consumes SINGLE-
+            // finger drags too, which starves the parent HorizontalPager of
+            // swipes. Instead we only handle + consume when the gesture is
+            // "ours" (two+ fingers, or already zoomed). A single finger at
+            // scale 1 is consumed by nothing, so the pager gets the swipe.
             .pointerInput(Unit) {
-                detectTransformGestures { centroid, pan, zoom, _ ->
-                    val old = scale.value
-                    val new = (old * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val pointersDown = event.changes.count { it.pressed }
+                        val zoomedNow = scale.value > 1.001f
+                        if (pointersDown > 1 || zoomedNow) {
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val centroid = event.calculateCentroid()
 
-                    // Zoom around the pinch centroid: keep the point under the
-                    // fingers stationary. Centroid is relative to the box, so
-                    // convert to a centre-origin vector first.
-                    val centre = Offset(size.width / 2f, size.height / 2f)
-                    val focus = centroid - centre
-                    val scaleDelta = if (old != 0f) new / old else 1f
-                    // New offset that preserves the focal point, plus the pan.
-                    val candidate = (offset - focus) * scaleDelta + focus + pan
+                            val old = scale.value
+                            // Guard NaN / non-positive zoom deltas defensively.
+                            val zoom = if (zoomChange > 0f && !zoomChange.isNaN()) zoomChange else 1f
+                            val new = (old * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
 
-                    scope.launch { scale.snapTo(new) }
-                    offset = clampOffset(candidate, new)
+                            // Zoom around the pinch centroid: keep the point
+                            // under the fingers stationary. Centroid is relative
+                            // to the box, so convert to a centre-origin vector.
+                            // calculateCentroid() returns Unspecified when no
+                            // pointer moved this frame — fall back to the box
+                            // centre so focus becomes zero (pure zoom, no shift).
+                            val centre = Offset(size.width / 2f, size.height / 2f)
+                            val focus = if (centroid == Offset.Unspecified) {
+                                Offset.Zero
+                            } else {
+                                centroid - centre
+                            }
+                            val scaleDelta = if (old != 0f) new / old else 1f
+                            // New offset that preserves the focal point, plus pan.
+                            val candidate = (offset - focus) * scaleDelta + focus + panChange
+
+                            scope.launch { scale.snapTo(new) }
+                            offset = clampOffset(candidate, new)
+
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        }
+                        // Single finger + not zoomed: consume nothing so the
+                        // parent HorizontalPager receives the swipe.
+                    } while (event.changes.any { it.pressed })
                 }
             }
             // Double-tap detector on a SEPARATE pointerInput so it coexists
             // with the transform detector (CLAUDE.md §1 gotcha).
             .pointerInput(Unit) {
                 detectTapGestures(
+                    onTap = { onTap() },
                     onDoubleTap = { tap ->
                         val target = if (scale.value > 1f + 0.001f) MIN_SCALE else 2f
                         if (target == MIN_SCALE) {
