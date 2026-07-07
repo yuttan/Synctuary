@@ -767,17 +767,37 @@ private fun BottomControls(
                 modifier = Modifier.width(50.dp),
             )
             Box(modifier = Modifier.weight(1f).height(48.dp)) {
+                // Seek only on drag RELEASE, not continuously. Per-tick
+                // seeking spammed player.seekTo in direct mode and, in
+                // transcode mode, restarted the whole ffmpeg stream on
+                // every drag movement. While dragging, dragFraction drives
+                // the thumb locally; the single onSeek fires on release.
+                // duration <= 0 (unknown, e.g. C.TIME_UNSET during a WMV
+                // transcode) disables seeking entirely — fraction * TIME_UNSET
+                // used to produce a negative target that clamped to 0 and
+                // sent playback back to the start.
+                var dragFraction by remember { mutableStateOf<Float?>(null) }
                 androidx.compose.material3.Slider(
-                    value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                    value = dragFraction
+                        ?: if (duration > 0) currentPosition.toFloat() / duration else 0f,
                     onValueChange = { fraction ->
-                        onSeek((fraction * duration).toLong())
+                        if (duration > 0) dragFraction = fraction
                     },
+                    onValueChangeFinished = {
+                        dragFraction?.let { fraction ->
+                            onSeek((fraction * duration).toLong())
+                        }
+                        dragFraction = null
+                    },
+                    enabled = duration > 0,
                     valueRange = 0f..1f,
                     modifier = Modifier.fillMaxWidth(),
                     colors = androidx.compose.material3.SliderDefaults.colors(
                         thumbColor = Color.White,
                         activeTrackColor = MaterialTheme.colorScheme.primary,
                         inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+                        disabledThumbColor = Color.White.copy(alpha = 0.4f),
+                        disabledInactiveTrackColor = Color.White.copy(alpha = 0.2f),
                     ),
                 )
                 // A/B marker lines drawn on top of the slider track
