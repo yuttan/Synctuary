@@ -297,7 +297,12 @@ private fun SynctuaryNavHost() {
                                 navController.navigate(NavRoute.ImagePreview.createRoute(fullPath))
                             }
                             mime.startsWith("video/") || mime.startsWith("audio/") -> {
-                                videoPlayerVm.currentShareId = fileBrowserVm.currentShare.value?.id
+                                val shareId = fileBrowserVm.currentShare.value?.id
+                                videoPlayerVm.currentShareId = shareId
+                                // previewVm builds the seek-preview thumbnail
+                                // URLs; scope it to the same share so they
+                                // resolve against the correct drive.
+                                previewVm.currentShareId = shareId
                                 navController.navigate(NavRoute.MediaPreview.createRoute(fullPath))
                             }
                         }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,6 +60,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -68,9 +70,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -87,6 +91,9 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -434,7 +441,12 @@ fun MediaPreviewScreen(
 
             // Gesture feedback overlays (visual only, no touch needed)
             seekFeedback?.let { (pos, dur) ->
-                SeekFeedbackOverlay(currentPos = pos, duration = dur)
+                SeekFeedbackOverlay(
+                    currentPos = pos,
+                    duration = dur,
+                    seekPreview = { seconds -> viewModel.thumbnailUrl(remotePath, size = 320, timeSeconds = seconds) },
+                    imageLoader = viewModel.imageLoader,
+                )
             }
 
             overlayFeedback?.let { feedback ->
@@ -469,6 +481,8 @@ fun MediaPreviewScreen(
                     onSetLoopA = { videoPlayerVm.setLoopPointA(state.currentPosition) },
                     onSetLoopB = { videoPlayerVm.setLoopPointB(state.currentPosition) },
                     onClearLoop = { videoPlayerVm.clearLoop() },
+                    seekPreview = { seconds -> viewModel.thumbnailUrl(remotePath, size = 320, timeSeconds = seconds) },
+                    previewImageLoader = viewModel.imageLoader,
                 )
             }
 
@@ -603,38 +617,151 @@ data class DoubleTapIndicator(
 )
 
 // ============================================================================
+// Seek-preview thumbnails (YouTube-style scrubbing)
+// ============================================================================
+
+private const val PREVIEW_W_DP = 160
+private const val PREVIEW_H_DP = 90
+private const val PREVIEW_THUMB_SIZE = 320
+
+// bucketPreviewSeconds stabilizes the requested timestamp so back-and-forth
+// scrubbing reuses the same URLs (and therefore Coil's memory/disk cache)
+// instead of hammering the server with one request per pixel of drag. The
+// bucket widens with duration so a 3-hour movie doesn't generate thousands
+// of distinct 1-second frames.
+private fun bucketPreviewSeconds(targetMs: Long, durationMs: Long): Long {
+    val targetSec = targetMs / 1000
+    val durationSec = durationMs / 1000
+    val bucket = (durationSec / 100).coerceAtLeast(2)
+    return (targetSec / bucket) * bucket
+}
+
+// SeekPreviewBubble draws a rounded thumbnail of the target frame above the
+// slider thumb, tracking it horizontally (clamped so it stays on-screen),
+// with the target time below it.
+@Composable
+private fun SeekPreviewBubble(
+    fraction: Float,
+    targetMs: Long,
+    durationMs: Long,
+    rowWidthPx: Int,
+    seekPreview: (seconds: Long) -> String,
+    imageLoader: ImageLoader,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val previewSec = bucketPreviewSeconds(targetMs, durationMs)
+    val bubbleWidthPx = with(density) { PREVIEW_W_DP.dp.toPx() }
+
+    // Center the bubble on the thumb, then clamp so it never overflows the
+    // slider row horizontally.
+    val thumbXPx = fraction.coerceIn(0f, 1f) * rowWidthPx
+    val maxOffset = (rowWidthPx - bubbleWidthPx).coerceAtLeast(0f)
+    val offsetXPx = (thumbXPx - bubbleWidthPx / 2f).coerceIn(0f, maxOffset)
+    val offsetXDp = with(density) { offsetXPx.toDp() }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .offset(x = offsetXDp, y = (-(PREVIEW_H_DP + 28)).dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(PREVIEW_W_DP.dp)
+                .height(PREVIEW_H_DP.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black),
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(seekPreview(previewSec))
+                    // Instant swap while scrubbing — crossfade lags behind
+                    // rapid drags and looks worse than a hard cut.
+                    .crossfade(false)
+                    .build(),
+                imageLoader = imageLoader,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = formatTime(targetMs),
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.Black.copy(alpha = 0.7f))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+// ============================================================================
 // Seek Feedback Overlay — centered pill showing current time / duration
 // ============================================================================
 
 @Composable
-private fun SeekFeedbackOverlay(currentPos: Long, duration: Long) {
+private fun SeekFeedbackOverlay(
+    currentPos: Long,
+    duration: Long,
+    seekPreview: ((seconds: Long) -> String)? = null,
+    imageLoader: ImageLoader? = null,
+) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.padding(16.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Thumbnail of the target frame above the time pill. Uses the
+            // same bucketing as the slider bubble so scrubbing back and
+            // forth reuses cached URLs.
+            if (seekPreview != null && imageLoader != null && duration > 0) {
+                val previewSec = bucketPreviewSeconds(currentPos, duration)
+                Box(
+                    modifier = Modifier
+                        .width(PREVIEW_W_DP.dp)
+                        .height(PREVIEW_H_DP.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black),
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(seekPreview(previewSec))
+                            .crossfade(false)
+                            .build(),
+                        imageLoader = imageLoader,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.padding(16.dp),
             ) {
-                Text(
-                    text = formatTime(currentPos),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    fontFamily = MaterialTheme.typography.bodyLarge.fontFamily,
-                )
-                Text(text = " / ", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
-                Text(
-                    text = formatTime(duration),
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 14.sp,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = formatTime(currentPos),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        fontFamily = MaterialTheme.typography.bodyLarge.fontFamily,
+                    )
+                    Text(text = " / ", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+                    Text(
+                        text = formatTime(duration),
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 14.sp,
+                    )
+                }
             }
         }
     }
@@ -745,6 +872,11 @@ private fun BottomControls(
     onSetLoopA: () -> Unit,
     onSetLoopB: () -> Unit,
     onClearLoop: () -> Unit,
+    // seekPreview maps a target position (whole seconds) to a thumbnail
+    // URL for the scrubbing preview bubble. null disables the feature
+    // (keeps BottomControls independent of PreviewViewModel for testing).
+    seekPreview: ((seconds: Long) -> String)? = null,
+    previewImageLoader: ImageLoader? = null,
 ) {
     Column(
         modifier = Modifier
@@ -766,7 +898,13 @@ private fun BottomControls(
                 fontSize = 12.sp,
                 modifier = Modifier.width(50.dp),
             )
-            Box(modifier = Modifier.weight(1f).height(48.dp)) {
+            var sliderRowWidthPx by remember { mutableIntStateOf(0) }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+                    .onGloballyPositioned { sliderRowWidthPx = it.size.width },
+            ) {
                 // Seek only on drag RELEASE, not continuously. Per-tick
                 // seeking spammed player.seekTo in direct mode and, in
                 // transcode mode, restarted the whole ffmpeg stream on
@@ -777,6 +915,24 @@ private fun BottomControls(
                 // used to produce a negative target that clamped to 0 and
                 // sent playback back to the start.
                 var dragFraction by remember { mutableStateOf<Float?>(null) }
+
+                // Seek-preview bubble: while dragging, show a thumbnail of the
+                // target frame above the thumb, tracking it horizontally.
+                if (seekPreview != null && previewImageLoader != null) {
+                    dragFraction?.let { fraction ->
+                        if (duration > 0) {
+                            SeekPreviewBubble(
+                                fraction = fraction,
+                                targetMs = (fraction * duration).toLong(),
+                                durationMs = duration,
+                                rowWidthPx = sliderRowWidthPx,
+                                seekPreview = seekPreview,
+                                imageLoader = previewImageLoader,
+                                modifier = Modifier.align(Alignment.TopStart),
+                            )
+                        }
+                    }
+                }
                 androidx.compose.material3.Slider(
                     value = dragFraction
                         ?: if (duration > 0) currentPosition.toFloat() / duration else 0f,
