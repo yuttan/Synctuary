@@ -369,11 +369,29 @@ private fun ImagePage(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
+                    // Touch-slop gate: a tap always jitters a few px, and if a
+                    // zoomed single-finger gesture consumed those moves,
+                    // detectTapGestures would be cancelled and neither single
+                    // nor double tap could ever fire while zoomed. Only start
+                    // consuming after real movement (or immediately for a
+                    // second finger = pinch).
+                    var pastSlop = false
+                    var slopAccum = Offset.Zero
                     do {
                         val event = awaitPointerEvent()
                         val pointersDown = event.changes.count { it.pressed }
                         val zoomedNow = scale.value > 1.001f
-                        if (pointersDown > 1 || zoomedNow) {
+                        if (!pastSlop) {
+                            if (pointersDown > 1) {
+                                pastSlop = true
+                            } else if (zoomedNow) {
+                                slopAccum += event.calculatePan()
+                                if (slopAccum.getDistance() > viewConfiguration.touchSlop) {
+                                    pastSlop = true
+                                }
+                            }
+                        }
+                        if (pastSlop && (pointersDown > 1 || zoomedNow)) {
                             val zoomChange = event.calculateZoom()
                             val panChange = event.calculatePan()
                             val centroid = event.calculateCentroid()

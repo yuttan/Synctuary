@@ -19,8 +19,8 @@ android {
         applicationId             = "io.synctuary.android"
         minSdk                    = 26          // BiometricPrompt needs API 28; 26 floor for tonal palette.
         targetSdk                 = 34
-        versionCode               = 6
-        versionName               = "0.7.8"
+        versionCode               = 7
+        versionName               = "0.7.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
