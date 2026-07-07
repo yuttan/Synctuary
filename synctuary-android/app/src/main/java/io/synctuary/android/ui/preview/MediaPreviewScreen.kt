@@ -74,6 +74,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import io.synctuary.android.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -150,10 +152,20 @@ fun MediaPreviewScreen(
         }
     }
 
+    // Collect player state early so the player reference below can react to
+    // transcode fallback (which swaps the ExoPlayer instance inside the VM).
+    val state by videoPlayerVm.playerState.collectAsStateWithLifecycle()
+    val loopState by videoPlayerVm.loopState.collectAsStateWithLifecycle()
+
     // Get or build ExoPlayer — survives config changes (orientation, fullscreen)
     // because the ViewModel holds the player across recompositions (#5).
+    // Keyed on transcodeActive so that when the VM rebuilds the player for
+    // server-side transcode fallback, we re-read the new live instance and
+    // re-bind it to the PlayerView / gesture handlers.
     val contentUrl = videoPlayerVm.contentUrl(remotePath)
-    val exoPlayer = remember { videoPlayerVm.getOrBuildPlayer(remotePath, contentUrl) }
+    val exoPlayer = remember(state.transcodeActive) {
+        videoPlayerVm.getOrBuildPlayer(remotePath, contentUrl)
+    }
 
     // Release player and restore orientation when leaving this screen.
     // Using DisposableEffect ensures this runs regardless of how the user
@@ -209,10 +221,6 @@ fun MediaPreviewScreen(
         currentSpeed = videoPlayerVm.getCurrentSpeed()
     }
 
-    // Collect player state
-    val state by videoPlayerVm.playerState.collectAsStateWithLifecycle()
-    val loopState by videoPlayerVm.loopState.collectAsStateWithLifecycle()
-
     // Update orientation when actual video dimensions become available.
     // The initial fullscreen call uses 0×0 (defaults to landscape);
     // once ExoPlayer reports the real size, re-orient for portrait videos.
@@ -252,6 +260,11 @@ fun MediaPreviewScreen(
                 },
                 update = { pv ->
                     pv.resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_FIT else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    // Re-bind on transcode fallback: the VM swaps the ExoPlayer
+                    // instance, and `exoPlayer` here is keyed on transcodeActive.
+                    if (pv.player !== exoPlayer) {
+                        pv.player = exoPlayer
+                    }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -515,6 +528,27 @@ fun MediaPreviewScreen(
                         contentDescription = "Unlock",
                         tint = Color.White,
                         modifier = Modifier.padding(8.dp),
+                    )
+                }
+            }
+
+            // Transcode indicator — shown when the file couldn't be played
+            // directly and playback fell back to server-side transcoding.
+            AnimatedVisibility(
+                visible = state.transcodeActive && controlsVisible && !isLocked,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 72.dp),
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.transcode_active),
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
             }

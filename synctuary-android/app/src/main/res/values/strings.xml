@@ -186,4 +186,7 @@
 
     <!-- Language -->
     <string name="settings_language">Language</string>
+
+    <!-- Media preview: transcode playback -->
+    <string name="transcode_active">Server transcoding</string>
 </resources>
