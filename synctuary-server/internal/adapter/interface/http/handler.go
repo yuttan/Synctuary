@@ -508,6 +508,20 @@ func (h *Handler) FilesThumbnail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// t: optional non-negative float seconds for a seek-preview frame at
+	// an arbitrary timestamp (YouTube-style scrubbing). Absent or 0 keeps
+	// the default DB-cached 1s-mark behavior. Reject negative/NaN/Inf with
+	// 400, mirroring the transcode `start` param.
+	var t float64
+	if ts := r.URL.Query().Get("t"); ts != "" {
+		v, err := strconv.ParseFloat(ts, 64)
+		if err != nil || v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+			WriteError(w, http.StatusBadRequest, "bad_request", "t must be a non-negative number of seconds")
+			return
+		}
+		t = v
+	}
+
 	if h.thumbnails == nil {
 		WriteError(w, http.StatusNotImplemented, "not_implemented", "thumbnail service not available")
 		return
@@ -518,7 +532,7 @@ func (h *Handler) FilesThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	thumbSvc := h.thumbnails.WithStorage(storage)
-	thumb, err := thumbSvc.Get(r.Context(), p, size)
+	thumb, err := thumbSvc.GetAt(r.Context(), p, size, t)
 	if err != nil {
 		if strings.Contains(err.Error(), "unsupported mime") {
 			WriteError(w, http.StatusBadRequest, "unsupported_type", "file type does not support thumbnails")
@@ -530,6 +544,8 @@ func (h *Handler) FilesThumbnail(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Content-Length", strconv.Itoa(len(thumb.Data)))
+	// t>0 frames are never DB-cached server-side; the URL (with its t)
+	// is the client's cache key, so allow aggressive private caching.
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(thumb.Data); err != nil {

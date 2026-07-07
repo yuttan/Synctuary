@@ -7,7 +7,7 @@
 
 This document defines the wire protocol between Synctuary clients and servers. Third-party implementations of clients or servers conforming to this specification are welcome.
 
-**Changes from v0.3.0 Final**: Added §6.6 Transcode (`GET /api/v1/files/transcode`) — an OPTIONAL, capability-gated endpoint that re-encodes legacy video formats to a streamable fragmented-MP4 (H.264/AAC) so clients whose native decoders cannot play the source container/codec can still play it. Added the `transcode` capability flag. No wire-incompatible changes; clients that do not implement transcode are fully compatible with a server that advertises it.
+**Changes from v0.3.0 Final**: Added §6.6 Transcode (`GET /api/v1/files/transcode`) — an OPTIONAL, capability-gated endpoint that re-encodes legacy video formats to a streamable fragmented-MP4 (H.264/AAC) so clients whose native decoders cannot play the source container/codec can still play it. Added the `transcode` capability flag. Documented §6.7 Thumbnail (`GET /api/v1/files/thumbnail`) and added its OPTIONAL `t` query parameter — a non-negative number of seconds selecting a video frame at an arbitrary timestamp for seek-preview / scrubbing thumbnails; `t > 0` is video-only and served uncached server-side. No wire-incompatible changes; clients that do not implement these features are fully compatible with a server that advertises them.
 
 **Changes from v0.2.3 Final**: Added §10 Shares (multi-drive support — clients discover available drives via `GET /api/v1/shares`; file operations gain an optional `share` query parameter) and §11 Pins (per-device Quick Access bookmarks). Added `shares` and `pins` capabilities. Renumbered §12–15. Updated version to v0.3.0.
 
@@ -503,6 +503,32 @@ Rename or move a file or directory.
 | 400 | `bad_request` | `from` and `to` resolve to the same path, or either is invalid |
 
 Moves MUST be atomic when source and destination are on the same volume; servers MAY fall back to copy-then-delete across volumes and SHOULD document this behavior.
+
+### 6.7 `GET /api/v1/files/thumbnail` (Optional)
+
+Returns a JPEG thumbnail for an image or video file. Video thumbnails require a frame extractor (e.g. `ffmpeg`); servers without one simply do not produce thumbnails for `video/*` sources.
+
+**Query parameters:**
+
+- `path` (required) — the source file path (§1 rules apply).
+- `share` (optional) — scopes the operation to a named share (§10). Defaults to the default share.
+- `size` (optional, default `256`) — the requested longest-side dimension in pixels. Servers clamp to an implementation maximum.
+- `t` (optional, default `0`) — a **non-negative** number of seconds selecting a video frame at an arbitrary timestamp (used for seek-preview / scrubbing thumbnails). Fractional values are permitted. Negative, `NaN`, or infinite values MUST be rejected with `400 bad_request`.
+  - When `t` is `0` or absent, the server returns its default thumbnail (for video, a frame near the start), which it MAY cache and serve from a persistent store.
+  - When `t > 0`, the request is **video-only**: a non-video `path` MUST be rejected with `400 unsupported_type`. The server extracts a frame at that timestamp and SHOULD NOT persist it in its thumbnail cache (arbitrary timestamps would bloat it); the client is expected to rely on HTTP caching instead, keyed by the request URL.
+
+**Response (200):**
+
+- `Content-Type: image/jpeg`
+- `Cache-Control: private, max-age=86400` — the URL (including any `t`) is the cache key.
+
+**Errors:**
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `bad_request` | invalid `path`, `share`, or `t` |
+| 400 | `unsupported_type` | `path` does not support thumbnails (e.g. `t > 0` on a non-video, or an unsupported source type) |
+| 404 | `not_found` | `path` does not exist |
 
 ### 6.6 `GET /api/v1/files/transcode` (Optional)
 
