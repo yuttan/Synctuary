@@ -46,6 +46,10 @@ export const api = {
   // Stats
   stats: () => request<Stats>('GET', '/stats'),
 
+  // Seed phrase (first-run only)
+  seedPhrase: () => request<SeedPhraseResponse>('GET', '/seed-phrase'),
+  seedPhraseAcknowledge: () => request<{ ok: boolean }>('POST', '/seed-phrase/acknowledge'),
+
   // Pairing
   pairingInfo: () => request<PairingInfo>('GET', '/pairing-info'),
 
@@ -165,4 +169,9 @@ export interface WGPeersResponse {
 export interface WGAddPeerResponse {
   peer: WGPeer
   config: string
+}
+
+export interface SeedPhraseResponse {
+  mnemonic: string
+  pending: boolean
 }

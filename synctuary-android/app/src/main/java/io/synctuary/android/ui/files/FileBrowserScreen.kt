@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -54,6 +55,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -245,82 +247,94 @@ fun FileBrowserScreen(
         floatingActionButtonPosition = if (leftHandMode) FabPosition.Start else FabPosition.End,
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        Column(
+        PullToRefreshBox(
+            isRefreshing = state.refreshing,
+            onRefresh = { viewModel.refresh() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            if (!viewModel.isAtSharesRoot) {
-                BreadcrumbBar(
-                    path = state.currentPath,
-                    shareName = currentShare?.name,
-                    onNavigate = { viewModel.navigateToBreadcrumb(it) },
-                    onSharesRoot = if (sharesList.size > 1) {
-                        { viewModel.navigateUp(); Unit }
-                    } else null,
-                )
-            }
-
-            TransferBanner(downloadState = state.downloadState, uploadState = state.uploadState)
-
-            when {
-                state.loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-                state.error != null -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = state.error ?: "",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                }
-                state.filteredEntries.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = when {
-                                state.searchActive -> stringResource(R.string.files_no_matches)
-                                viewModel.isAtSharesRoot -> stringResource(R.string.files_no_shares)
-                                else -> stringResource(R.string.files_empty_folder)
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    }
-                }
-                else -> {
-                    FileList(
-                        entries = state.filteredEntries,
-                        currentPath = state.currentPath,
-                        previewViewModel = previewViewModel,
-                        onTap = { entry ->
-                            when (entry.type) {
-                                "share" -> {
-                                    val share = sharesList.find { it.id == entry.sha256 }
-                                    if (share != null) viewModel.selectShare(share)
-                                }
-                                "dir" -> viewModel.navigateInto(entry.name)
-                                else -> onPreview(entry)
-                            }
-                        },
-                        onLongPress = { entry ->
-                            if (entry.type != "share") {
-                                viewModel.selectForAction(entry)
-                            }
-                        },
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (!viewModel.isAtSharesRoot) {
+                    BreadcrumbBar(
+                        path = state.currentPath,
+                        shareName = currentShare?.name,
+                        onNavigate = { viewModel.navigateToBreadcrumb(it) },
+                        onSharesRoot = if (sharesList.size > 1) {
+                            { viewModel.navigateUp(); Unit }
+                        } else null,
                     )
+                }
+
+                TransferBanner(downloadState = state.downloadState, uploadState = state.uploadState)
+
+                when {
+                    state.loading -> {
+                        Box(
+                            // verticalScroll so the pull-to-refresh nested-scroll
+                            // gesture still works when the list isn't showing
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                    state.error != null -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = state.error ?: "",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                    state.filteredEntries.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = when {
+                                    state.searchActive -> stringResource(R.string.files_no_matches)
+                                    viewModel.isAtSharesRoot -> stringResource(R.string.files_no_shares)
+                                    else -> stringResource(R.string.files_empty_folder)
+                                },
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                    }
+                    else -> {
+                        FileList(
+                            entries = state.filteredEntries,
+                            currentPath = state.currentPath,
+                            previewViewModel = previewViewModel,
+                            onTap = { entry ->
+                                when (entry.type) {
+                                    "share" -> {
+                                        val share = sharesList.find { it.id == entry.sha256 }
+                                        if (share != null) viewModel.selectShare(share)
+                                    }
+                                    "dir" -> viewModel.navigateInto(entry.name)
+                                    else -> onPreview(entry)
+                                }
+                            },
+                            onLongPress = { entry ->
+                                if (entry.type != "share") {
+                                    viewModel.selectForAction(entry)
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -533,7 +547,7 @@ private fun FileList(
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(entries, key = { it.name }) { entry ->
-            val thumbUrl = remember(entry.name, currentPath) {
+            val thumbUrl = remember(entry.name, currentPath, previewViewModel?.currentShareId) {
                 if (previewViewModel != null && isThumbnailable(entry.mime_type)) {
                     val remotePath = if (currentPath == "/") "/${entry.name}" else "$currentPath/${entry.name}"
                     previewViewModel.thumbnailUrl(remotePath)

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'preact/hooks'
 import { api, Stats } from '../api'
 import { ToastContainer } from '../components/toast'
 import { t, useLocale } from '../i18n'
+import { SeedPhrase } from './seed-phrase'
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -16,6 +17,7 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [pendingMnemonic, setPendingMnemonic] = useState('')
   useLocale()
 
   useEffect(() => {
@@ -23,7 +25,24 @@ export function Dashboard() {
       setStats(s)
       setLoading(false)
     }).catch(() => setLoading(false))
+
+    // Check for pending seed phrase (first-run, not yet acknowledged)
+    api.seedPhrase().then(res => {
+      if (res.pending && res.mnemonic) {
+        setPendingMnemonic(res.mnemonic)
+      }
+    }).catch(() => { /* ignore — seed phrase endpoint may not be available */ })
   }, [])
+
+  // Show seed phrase overlay if pending
+  if (pendingMnemonic) {
+    return (
+      <SeedPhrase
+        mnemonic={pendingMnemonic}
+        onAcknowledged={() => setPendingMnemonic('')}
+      />
+    )
+  }
 
   return (
     <div>

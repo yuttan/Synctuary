@@ -146,6 +146,32 @@ class FileBrowserViewModel @JvmOverloads constructor(
         }
     }
 
+    fun refresh() {
+        if (isAtSharesRoot) {
+            loadSharesThenRoot()
+            return
+        }
+        val path = _uiState.value.currentPath
+        _uiState.update { it.copy(refreshing = true) }
+        viewModelScope.launch {
+            try {
+                val shareId = _currentShare.value?.id
+                val entries = repo.listFiles(path, shareId)
+                _uiState.update {
+                    it.copy(
+                        entries = entries,
+                        refreshing = false,
+                        error = null,
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(refreshing = false, error = e.message ?: "Failed to refresh")
+                }
+            }
+        }
+    }
+
     fun navigateInto(dirName: String) {
         val current = _uiState.value.currentPath
         val next = if (current == "/") "/$dirName" else "$current/$dirName"
@@ -450,6 +476,7 @@ data class FileBrowserUiState(
     val searchQuery: String = "",
     val sortBy: SortOption = SortOption.NAME,
     val sortAscending: Boolean = true,
+    val refreshing: Boolean = false,
 ) {
     val filteredEntries: List<FileEntry>
         get() {

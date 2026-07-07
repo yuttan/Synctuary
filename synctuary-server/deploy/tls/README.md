@@ -1,5 +1,7 @@
 # TLS material for Synctuary
 
+> **Auto-generation**: As of v0.7.1, if `tls_cert_path` / `tls_key_path` are configured but the files don't exist, the server automatically generates an ECDSA P-256 self-signed cert with all detected LAN IPs as SANs. Manual generation below is only needed if you want a custom cert (e.g. Let's Encrypt, specific SANs, RSA key).
+
 PROTOCOL §10.2 production mode requires TLS. The server reads:
 
 - `server.crt` — PEM-encoded X.509 certificate

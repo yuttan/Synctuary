@@ -49,6 +49,7 @@ type Handler struct {
 
 	mu          sync.RWMutex
 	pendingMode string // non-empty when the user changed the mode but hasn't restarted yet
+	mnemonic    string // non-empty only on first run, cleared after admin acknowledges
 }
 
 // HandlerConfig is the constructor input for the admin handler.
@@ -64,6 +65,7 @@ type HandlerConfig struct {
 	ListenAddr     string // e.g. ":8443"
 	TLSEnabled     bool
 	RemoteAccess   config.RemoteAccessConfig
+	Mnemonic       string // non-empty on first run; displayed in admin UI until acknowledged
 }
 
 // NewHandler validates the config and returns an admin Handler.
@@ -86,6 +88,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		listenAddr:     cfg.ListenAddr,
 		tlsEnabled:     cfg.TLSEnabled,
 		remoteAccess:   cfg.RemoteAccess,
+		mnemonic:       cfg.Mnemonic,
 	}, nil
 }
 
@@ -118,6 +121,10 @@ func (h *Handler) Register(r chi.Router) {
 
 				// Dashboard stats.
 				r.Get("/stats", h.Stats)
+
+				// Seed phrase (first-run only, in-memory).
+				r.Get("/seed-phrase", h.SeedPhrase)
+				r.Post("/seed-phrase/acknowledge", h.SeedPhraseAcknowledge)
 
 				// Pairing info (QR code data).
 				r.Get("/pairing-info", h.PairingInfo)
@@ -410,6 +417,33 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 		"total_devices":  len(devices),
 		"total_shares":   len(shares),
 	})
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Seed phrase (first-run only)
+// ──────────────────────────────────────────────────────────────────
+
+// SeedPhrase returns the BIP-39 mnemonic if this is a first-run boot
+// and the admin hasn't acknowledged it yet. The mnemonic is held in
+// memory only — a server restart clears it permanently.
+func (h *Handler) SeedPhrase(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	m := h.mnemonic
+	h.mu.RUnlock()
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"mnemonic": m,
+		"pending":  m != "",
+	})
+}
+
+// SeedPhraseAcknowledge clears the in-memory mnemonic after the admin
+// confirms they've saved it. Once cleared it cannot be recovered.
+func (h *Handler) SeedPhraseAcknowledge(w http.ResponseWriter, _ *http.Request) {
+	h.mu.Lock()
+	h.mnemonic = ""
+	h.mu.Unlock()
+	h.log.Info("seed phrase acknowledged by admin — cleared from memory")
+	writeAdminJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // ──────────────────────────────────────────────────────────────────

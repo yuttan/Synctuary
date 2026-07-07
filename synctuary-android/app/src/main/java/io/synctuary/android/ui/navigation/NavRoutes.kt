@@ -34,6 +34,9 @@ sealed class NavRoute(val route: String) {
     // QR scanner (onboarding)
     data object QrScanner : NavRoute("onboarding/qr_scanner")
 
+    // QR scanner (settings — remote URL capture)
+    data object SettingsQrScanner : NavRoute("settings/qr_scanner")
+
     // Debug
     data object PairingDebug : NavRoute("debug/pairing")
 }

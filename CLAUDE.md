@@ -4,7 +4,7 @@
 > not to break" briefing for any new Claude Code session picking up the
 > Synctuary project. Update it in lock-step with the architecture.
 
-**Last updated**: 2026-05-15 (after v0.7 — thumbnails, photo backup, shares UI PR #33; QR pairing, share propagation, video thumbnails PR #35)
+**Last updated**: 2026-05-18 (after v0.7.1 — TLS auto-gen, seed phrase UI, upload share-scope fix, Windows installer, streaming improvements)
 **Repo**: https://github.com/yuttan/Synctuary (public, Apache-2.0)
 
 ---
@@ -54,12 +54,16 @@ Synctuary/
 │   ├── go.mod                         ← Go 1.22
 │   ├── cmd/synctuaryd/main.go         ← entrypoint (DI graph wiring)
 │   ├── pkg/config/config.go           ← koanf YAML+env config
+│   ├── pkg/tlsgen/tlsgen.go           ← ECDSA P-256 self-signed cert auto-generation
 │   ├── deploy/
 │   │   ├── README.md                  ← Docker / Compose / systemd guide
 │   │   ├── docker-compose.yml
 │   │   ├── config.example.yml
 │   │   ├── synctuary.service          ← systemd unit (full hardening)
-│   │   └── tls/README.md              ← self-signed cert generation
+│   │   ├── tls/README.md              ← self-signed cert generation (manual)
+│   │   └── windows/                   ← Windows installer (Inno Setup)
+│   │       ├── synctuary.iss          ← Inno Setup script
+│   │       └── config.yml             ← Windows default config (TLS auto-gen enabled)
 │   └── internal/
 │       ├── domain/                    ← entities + interfaces (no impl deps)
 │       │   ├── device/, file/, nonce/, rate/, secret/, favorite/
@@ -75,7 +79,7 @@ Synctuary/
 │       │   ├── infrastructure/        ← impl: db (SQLite/modernc), fs, crypto, rate, secret, wg
 │       │   └── interface/http/        ← chi router + handlers + middleware
 │       │       └── admin/             ← admin Web UI (Preact/Vite/Tailwind, go:embed)
-│       ├── migrations/                ← goose SQL: 001-007 (init, uploads, favorites, shares, pins, wg_peers, thumbnails)
+│       ├── migrations/                ← goose SQL: 001-008 (init, uploads, favorites, shares, pins, wg_peers, thumbnails, upload_root_path)
 │       └── integration/               ← end-to-end tests booting httptest.Server
 │
 └── synctuary-android/                 ← Android client, Apache-2.0
@@ -159,6 +163,12 @@ Synctuary/
 
 15. **Video thumbnails via ffmpeg**: server auto-detects `ffmpeg` at startup via `exec.LookPath`. If present, `ThumbnailService.Get()` extracts a frame at 1s mark and resizes it. If absent, video thumbnails are silently unavailable (graceful degradation). Docker image bundles a static ffmpeg from `mwader/static-ffmpeg`.
 
+16. **TLS auto-generation** (`pkg/tlsgen`): on first startup, if `tls_cert_path`/`tls_key_path` are configured but the files don't exist, the server generates an ECDSA P-256 self-signed cert (10-year validity). SANs include all LAN IPv4/IPv6 addresses + `localhost` + `::1` + `synctuary.local`. Default config paths are `data/tls/server.crt` / `server.key`, so TLS is enabled out-of-the-box. Existing certs are never overwritten.
+
+17. **Seed phrase display in admin UI**: on first launch, `loadOrInitMasterKey` returns the BIP-39 mnemonic alongside the derived key. The mnemonic is passed to the admin handler and held in memory only (never persisted to DB). The admin UI shows it after the initial password setup, with an acknowledge button that clears it from memory. After server restart, it's gone permanently. This replaces the stderr-only display which Windows double-click users would miss.
+
+18. **Upload share-scope persistence** (migration 008): `uploads` table has a `root_path` column so `AppendChunk` can resolve the correct share storage for final rename. Fixes uploads from non-default shares landing in the wrong directory. The `ForRoot(root)` method on `UploadSession` creates a scoped instance; `FileService.WithStorage(storage, root)` now scopes both the storage and the upload session.
+
 ## 4. Local development environment (Windows file-server, 2026-05-14)
 
 Toolchain locations (all portable, no admin):
@@ -171,6 +181,7 @@ Toolchain locations (all portable, no admin):
 | Gradle 8.10.2 (portable) | `C:/Users/FileServer/sdk/gradle-8.10.2/` | Bootstrapped wrapper jar from `lib/plugins/gradle-wrapper-main-*.jar` (see §6.3) |
 | Android SDK 34 | `C:/Users/FileServer/sdk/android/` | platform-tools + build-tools 34.0.0 + SDK platform 34 |
 | GitHub CLI | `C:/Program Files/GitHub CLI/gh.exe` | Authenticated as `yuttan` |
+| Inno Setup 6.7.1 | `C:/Users/FileServer/AppData/Local/Programs/Inno Setup 6/` | Windows installer compiler |
 
 Bash commands run in MINGW64 (git-for-windows). PowerShell available too.
 
@@ -425,14 +436,29 @@ Do NOT pass PNG/BMP/JPEG to `systray.SetIcon()` on Windows.
 - ✅ Android: `configChanges` in AndroidManifest — prevents Activity recreation on orientation change, fixes navigation reset after video playback (PR #35)
 - ✅ Docker: ffmpeg static binary via `mwader/static-ffmpeg` multi-stage copy (PR #36)
 
+### Done (v0.7.1 = 2026-05-18)
+- ✅ Server: upload share-scope fix — migration 008 adds `root_path` to uploads table, `AppendChunk` reads persisted root for final rename (PR #45)
+- ✅ Server: upload session TTL refresh on chunk activity (PROTOCOL §6.3.3 compliance) (PR #45)
+- ✅ Server: 409 `upload_in_progress` now includes `Retry-After` header (PR #45)
+- ✅ Server: download `Content-Disposition` header for proper filename handling (PR #45)
+- ✅ Server: periodic `Flush` during large downloads (256KiB intervals) for mobile progress (PR #45)
+- ✅ Server: default chunk size reduced 8MiB -> 2MiB for mobile-friendly uploads (PR #45)
+- ✅ Server: TLS auto-generation — `pkg/tlsgen` generates ECDSA P-256 self-signed cert on first run with all LAN IPs as SANs; default config enables TLS out-of-the-box
+- ✅ Server: seed phrase display in admin UI — shown after initial setup, held in memory only, cleared on acknowledge
+- ✅ Server: admin API — `GET /admin/api/seed-phrase` + `POST /admin/api/seed-phrase/acknowledge`
+- ✅ Admin UI: seed phrase page (24-word grid, yellow warning banner, acknowledge button, ja/en i18n)
+- ✅ Windows installer — Inno Setup script (`deploy/windows/`), per-user install, auto TLS, Start Menu shortcuts, firewall rule option
+- ✅ Documentation: README.md updated to v0.7 status (PR #46)
+
 ### Next up (priority order)
-1. **Server refinements** — stream-friendly chunk sizes; refine §6.3.x error semantics based on real client behavior.
+1. **Third-party testing** — distribute Windows installer for external validation.
 2. **iOS client** — deferred until test device is available.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
 - **Production tags**: user pushes `git tag v0.7.0 && git push origin v0.7.0` when comfortable.
 - **Real-device pair test**: install debug APK on a phone, point at a running server, confirm the §4 flow works end-to-end (matters for sanity-checking the EncryptedSharedPreferences path on a real Keystore).
+- **Windows installer distribution**: `E:\Dev\SynctuarySetup-0.7.0.exe` (12.6 MB) ready for testers.
 
 ## 8. Subagent (サヤ) usage
 

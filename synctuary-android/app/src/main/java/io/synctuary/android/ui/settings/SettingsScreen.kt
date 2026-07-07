@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Sync
@@ -76,7 +77,13 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
+fun SettingsScreen(
+    viewModel: SettingsViewModel,
+    onUnpaired: () -> Unit,
+    onScanQr: () -> Unit = {},
+    scannedUrl: String? = null,
+    onScannedUrlConsumed: () -> Unit = {},
+) {
     val state by viewModel.uiState.collectAsState()
     var showUnpairDialog by remember { mutableStateOf(false) }
     var editingHomeUrl by remember { mutableStateOf(false) }
@@ -88,6 +95,14 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
     var newRemoteUrl by remember { mutableStateOf("") }
     var newRemoteLabel by remember { mutableStateOf("") }
     val context = LocalContext.current
+
+    LaunchedEffect(scannedUrl) {
+        if (scannedUrl != null) {
+            newRemoteUrl = scannedUrl
+            showAddRemote = true
+            onScannedUrlConsumed()
+        }
+    }
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -252,14 +267,29 @@ fun SettingsScreen(viewModel: SettingsViewModel, onUnpaired: () -> Unit) {
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 Spacer(Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = newRemoteUrl,
-                                    onValueChange = { newRemoteUrl = it },
-                                    singleLine = true,
-                                    label = { Text("URL") },
-                                    placeholder = { Text("https://192.168.1.10:8443") },
+                                Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                )
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    OutlinedTextField(
+                                        value = newRemoteUrl,
+                                        onValueChange = { newRemoteUrl = it },
+                                        singleLine = true,
+                                        label = { Text("URL") },
+                                        placeholder = { Text("https://192.168.1.10:8443") },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    androidx.compose.material3.IconButton(
+                                        onClick = { onScanQr() },
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.QrCodeScanner,
+                                            contentDescription = stringResource(R.string.onboarding_scan_qr),
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
                                 Spacer(Modifier.height(8.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

@@ -2,12 +2,14 @@ import { useState } from 'preact/hooks'
 import { api, ApiError } from '../api'
 import { authState } from '../auth'
 import { t, useLocale } from '../i18n'
+import { SeedPhrase } from './seed-phrase'
 
 export function Setup() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [pendingMnemonic, setPendingMnemonic] = useState('')
   useLocale()
 
   async function handleSubmit(e: Event) {
@@ -25,12 +27,40 @@ export function Setup() {
     try {
       await api.setup(password)
       await api.login(password)
-      authState.value = 'authenticated'
+
+      // Check if there's a pending seed phrase to show. Setup + login
+      // already succeeded at this point, so a failure here must not
+      // strand the user on the setup form (re-submitting would fail
+      // with "already set up") — fall through to the dashboard, which
+      // re-checks for a pending seed phrase on mount.
+      try {
+        const seed = await api.seedPhrase()
+        if (seed.pending && seed.mnemonic) {
+          setPendingMnemonic(seed.mnemonic)
+        } else {
+          authState.value = 'authenticated'
+        }
+      } catch {
+        authState.value = 'authenticated'
+      }
     } catch (err) {
       setError((err as ApiError).message || t('setup.failed'))
     } finally {
       setLoading(false)
     }
+  }
+
+  // Show seed phrase screen after setup completes
+  if (pendingMnemonic) {
+    return (
+      <SeedPhrase
+        mnemonic={pendingMnemonic}
+        onAcknowledged={() => {
+          setPendingMnemonic('')
+          authState.value = 'authenticated'
+        }}
+      />
+    )
   }
 
   return (

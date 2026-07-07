@@ -114,6 +114,8 @@ func Defaults() *Config {
 		Server: ServerConfig{
 			Addr:            ":8443",
 			Name:            "Synctuary",
+			TLSCertPath:     "./data/tls/server.crt",
+			TLSKeyPath:      "./data/tls/server.key",
 			ReadTimeout:     30 * time.Second,
 			WriteTimeout:    5 * time.Minute,
 			ShutdownTimeout: 30 * time.Second,
