@@ -447,7 +447,7 @@ fun MediaPreviewScreen(
                 SeekFeedbackOverlay(
                     currentPos = pos,
                     duration = dur,
-                    seekPreview = { seconds -> viewModel.thumbnailUrl(remotePath, size = 320, timeSeconds = seconds) },
+                    seekPreview = { seconds -> viewModel.thumbnailUrl(remotePath, size = PREVIEW_THUMB_SIZE, timeSeconds = seconds) },
                     imageLoader = viewModel.imageLoader,
                 )
             }
@@ -484,7 +484,7 @@ fun MediaPreviewScreen(
                     onSetLoopA = { videoPlayerVm.setLoopPointA(state.currentPosition) },
                     onSetLoopB = { videoPlayerVm.setLoopPointB(state.currentPosition) },
                     onClearLoop = { videoPlayerVm.clearLoop() },
-                    seekPreview = { seconds -> viewModel.thumbnailUrl(remotePath, size = 320, timeSeconds = seconds) },
+                    seekPreview = { seconds -> viewModel.thumbnailUrl(remotePath, size = PREVIEW_THUMB_SIZE, timeSeconds = seconds) },
                     previewImageLoader = viewModel.imageLoader,
                 )
             }
@@ -623,9 +623,11 @@ data class DoubleTapIndicator(
 // Seek-preview thumbnails (YouTube-style scrubbing)
 // ============================================================================
 
-private const val PREVIEW_W_DP = 160
-private const val PREVIEW_H_DP = 90
-private const val PREVIEW_THUMB_SIZE = 320
+private const val PREVIEW_W_DP = 320
+private const val PREVIEW_H_DP = 180
+// Server caps thumbnails at MaxThumbSize=512 — request the cap so the
+// doubled on-screen size stays sharp.
+private const val PREVIEW_THUMB_SIZE = 512
 
 // bucketPreviewSeconds stabilizes the requested timestamp so back-and-forth
 // scrubbing reuses the same URLs (and therefore Coil's memory/disk cache)
@@ -641,9 +643,9 @@ private fun bucketPreviewSeconds(targetMs: Long, durationMs: Long): Long {
 
 // SeekPreviewBubble draws a rounded thumbnail of the target frame above the
 // slider thumb, tracking it horizontally (clamped so it stays on-screen),
-// with the target time (hh:mm:ss) overlaid INSIDE the image, bottom-center.
-// The time must live inside the image box: a label below it lands in the
-// slider row area, where the Slider (emitted later, thus drawn on top)
+// with the target time (hh:mm:ss) in a pill ABOVE the image so it never
+// overlaps the thumbnail. Never place a label BELOW the image: it lands in
+// the slider row area, where the Slider (emitted later, thus drawn on top)
 // covers it — that was a real bug reported from device testing.
 @Composable
 private fun SeekPreviewBubble(
@@ -666,37 +668,46 @@ private fun SeekPreviewBubble(
     val offsetXPx = (thumbXPx - bubbleWidthPx / 2f).coerceIn(0f, maxOffset)
     val offsetXDp = with(density) { offsetXPx.toDp() }
 
-    Box(
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        // Offset places the WHOLE column (label + gap + image) above the
+        // slider row: image height + label ~24dp + gap 4dp + margin ~12dp.
+        // The label sits ABOVE the image (user request: don't overlap the
+        // thumbnail); above is z-order-safe — only below-the-image labels
+        // collide with the Slider, which draws later in the same Box.
         modifier = modifier
-            .offset(x = offsetXDp, y = (-(PREVIEW_H_DP + 12)).dp)
-            .width(PREVIEW_W_DP.dp)
-            .height(PREVIEW_H_DP.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black),
+            .offset(x = offsetXDp, y = (-(PREVIEW_H_DP + 40)).dp),
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(seekPreview(previewSec))
-                // Instant swap while scrubbing — crossfade lags behind
-                // rapid drags and looks worse than a hard cut.
-                .crossfade(false)
-                .build(),
-            imageLoader = imageLoader,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-        )
         Text(
             text = formatTimeHms(targetMs),
             color = Color.White,
-            fontSize = 12.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 4.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(Color.Black.copy(alpha = 0.7f))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .padding(horizontal = 8.dp, vertical = 2.dp),
         )
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .width(PREVIEW_W_DP.dp)
+                .height(PREVIEW_H_DP.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black),
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(seekPreview(previewSec))
+                    // Instant swap while scrubbing — crossfade lags behind
+                    // rapid drags and looks worse than a hard cut.
+                    .crossfade(false)
+                    .build(),
+                imageLoader = imageLoader,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -716,30 +727,8 @@ private fun SeekFeedbackOverlay(
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // Thumbnail of the target frame above the time pill. Uses the
-            // same bucketing as the slider bubble so scrubbing back and
-            // forth reuses cached URLs.
-            if (seekPreview != null && imageLoader != null && duration > 0) {
-                val previewSec = bucketPreviewSeconds(currentPos, duration)
-                Box(
-                    modifier = Modifier
-                        .width(PREVIEW_W_DP.dp)
-                        .height(PREVIEW_H_DP.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black),
-                ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(seekPreview(previewSec))
-                            .crossfade(false)
-                            .build(),
-                        imageLoader = imageLoader,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
+            // Time pill ABOVE the thumbnail (matches the slider bubble; the
+            // user asked for the time to never overlap the preview image).
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
                 shape = RoundedCornerShape(20.dp),
@@ -762,6 +751,29 @@ private fun SeekFeedbackOverlay(
                         text = formatTimeHms(duration),
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = 14.sp,
+                    )
+                }
+            }
+            // Thumbnail of the target frame. Uses the same bucketing as the
+            // slider bubble so scrubbing back and forth reuses cached URLs.
+            if (seekPreview != null && imageLoader != null && duration > 0) {
+                val previewSec = bucketPreviewSeconds(currentPos, duration)
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .width(PREVIEW_W_DP.dp)
+                        .height(PREVIEW_H_DP.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black),
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(seekPreview(previewSec))
+                            .crossfade(false)
+                            .build(),
+                        imageLoader = imageLoader,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
