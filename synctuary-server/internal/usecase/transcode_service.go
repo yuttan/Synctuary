@@ -68,9 +68,10 @@ func (s *TranscodeService) WithStorage(storage file.FileStorage) *TranscodeServi
 	return &TranscodeService{storage: storage, log: s.log}
 }
 
-// Available reports whether ffmpeg is on PATH. Reuses the package-level
-// ffmpegAvailable probe (see thumbnail_service.go) so a single
-// exec.LookPath at init time serves both features.
+// Available reports whether ffmpeg was resolved (bundled beside the exe
+// or on PATH). Reuses the package-level ffmpegAvailable probe (see
+// media_tools.go) so a single resolution at init time serves both
+// thumbnails and transcoding.
 func (s *TranscodeService) Available() bool {
 	return ffmpegAvailable
 }
@@ -109,7 +110,7 @@ func (s *TranscodeService) Stream(ctx context.Context, path string, startSeconds
 	}
 
 	args := buildTranscodeArgs(absPath, startSeconds)
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

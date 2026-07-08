@@ -24,11 +24,6 @@ import (
 	"github.com/synctuary/synctuary-server/internal/domain/file"
 )
 
-var ffmpegAvailable = func() bool {
-	_, err := exec.LookPath("ffmpeg")
-	return err == nil
-}()
-
 const (
 	DefaultThumbSize = 256
 	MaxThumbSize     = 512
@@ -187,7 +182,7 @@ func isVideo(mime string) bool {
 
 func generateFromVideo(ctx context.Context, absPath string, size int, tSeconds float64) ([]byte, error) {
 	args := buildVideoThumbArgs(absPath, tSeconds)
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

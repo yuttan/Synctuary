@@ -197,13 +197,23 @@ cd synctuary-server
 cd web/admin && npm ci && npm run build && cd ../..
 
 # 2. Build the server binary
-go build -ldflags="-X main.serverVersion=0.7.0 -X main.commit=$(git rev-parse --short HEAD)" \
+go build -ldflags="-X main.serverVersion=0.7.9 -X main.commit=$(git rev-parse --short HEAD)" \
     -o synctuaryd.exe ./cmd/synctuaryd
 
-# 3. Compile the installer (requires Inno Setup 6)
-"C:\...\ISCC.exe" /DMyAppVersion=0.7.0 deploy/windows/synctuary.iss
-# Output: deploy/windows/output/SynctuarySetup-0.7.0.exe
+# 3. (optional) Fetch ffmpeg so the installer bundles the transcode/thumbnail
+#    component. Skip this to ship a server-only installer.
+powershell -ExecutionPolicy Bypass -File deploy/windows/fetch-ffmpeg.ps1
+
+# 4. Compile the installer (requires Inno Setup 6)
+"C:\...\ISCC.exe" /DMyAppVersion=0.7.9 deploy/windows/synctuary.iss
+# Output: deploy/windows/output/SynctuarySetup-0.7.9.exe
 ```
+
+The `.iss` compiles whether or not `fetch-ffmpeg.ps1` has run: the ffmpeg
+`[Files]` entries are guarded with `#ifexist`, so a missing `ffmpeg\bin\`
+simply produces an installer with an empty (unselectable-content) ffmpeg
+component and a compile-time warning. Run the fetch script first if you want
+the component populated.
 
 ### What the installer does
 
@@ -213,6 +223,12 @@ go build -ldflags="-X main.serverVersion=0.7.0 -X main.commit=$(git rev-parse --
 - Start Menu shortcuts: "Start Synctuary Server" + "Open Admin Panel"
 - Optional desktop shortcut and Windows Firewall exception (port 8443)
 - Uninstaller included
+- **Optional `ffmpeg` component** (default ON in the "Full" install type):
+  bundles a static `ffmpeg.exe` / `ffprobe.exe` into `{app}\ffmpeg\` for
+  video thumbnails and transcode playback. Deselect it (or pick the
+  "Server only" type) to skip. The upstream build's `LICENSE` is installed
+  next to the binaries — `ffmpeg` is a **separate, GPL-licensed program**
+  that Synctuary invokes as an external child process, not a linked library.
 
 ### First launch
 
@@ -236,11 +252,26 @@ Both degrade gracefully: without `ffmpeg`, video thumbnails are simply
 unavailable and the `transcode` capability advertises `false` (the endpoint
 returns `503 transcoder_unavailable`). Everything else works unchanged.
 
-To enable on Windows, download a static `ffmpeg` build (e.g. from
-gyan.dev or BtbN), and either add its `bin` directory to `PATH` or drop
-`ffmpeg.exe` next to `synctuaryd.exe`. Restart the server; it detects
-`ffmpeg` at startup. The **Docker image already bundles a static `ffmpeg`**,
-so container deployments need no extra setup.
+The server resolves `ffmpeg` / `ffprobe` at startup in this order (first hit
+wins), logging the resolved path:
+
+1. `<exe-dir>\ffmpeg\ffmpeg.exe` — the **installer's bundled** copy
+2. `<exe-dir>\ffmpeg.exe` — a binary dropped loose beside `synctuaryd.exe`
+3. system `PATH`
+
+Bundled-first is deliberate: the installer-shipped version wins over a random
+`PATH` version so behavior stays consistent with what was packaged.
+
+**Easiest path on Windows:** install with the **ffmpeg component selected**
+(default in the Full install type — see the build section above). The server
+finds the bundled binaries automatically, no `PATH` edits needed.
+
+If the component was skipped, you can still enable the features later: download
+a static `ffmpeg` build (e.g. from gyan.dev or BtbN) and either add its `bin`
+directory to `PATH`, drop `ffmpeg.exe`/`ffprobe.exe` beside `synctuaryd.exe`,
+or place them in an `ffmpeg\` subfolder next to it. Restart the server. The
+**Docker image already bundles a static `ffmpeg`**, so container deployments
+need no extra setup.
 
 ### Enable IPv6 remote access
 

@@ -8,13 +8,10 @@ import (
 	"strconv"
 )
 
-// ffprobeAvailable is probed independently of ffmpeg: some minimal
-// static ffmpeg builds ship without ffprobe, and vice versa. The
-// mediainfo endpoint is gated on THIS probe, not ffmpegAvailable.
-var ffprobeAvailable = func() bool {
-	_, err := exec.LookPath("ffprobe")
-	return err == nil
-}()
+// ffprobeAvailable is resolved independently of ffmpeg (see
+// media_tools.go): some minimal static ffmpeg builds ship without
+// ffprobe, and vice versa. The mediainfo endpoint is gated on THIS
+// probe, not ffmpegAvailable.
 
 // MediaInfo carries the coarse metadata the client needs to enable the
 // transcode seek bar: the total duration and the source pixel
@@ -57,7 +54,7 @@ func (s *TranscodeService) Probe(ctx context.Context, path string) (*MediaInfo, 
 	}
 
 	args := buildProbeArgs(absPath)
-	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	cmd := exec.CommandContext(ctx, ffprobePath, args...)
 	stderr := &boundedBuffer{limit: stderrCapBytes}
 	cmd.Stderr = stderr
 
