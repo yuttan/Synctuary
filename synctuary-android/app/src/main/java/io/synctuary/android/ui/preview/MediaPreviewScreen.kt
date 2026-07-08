@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,7 +51,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -638,7 +641,10 @@ private fun bucketPreviewSeconds(targetMs: Long, durationMs: Long): Long {
 
 // SeekPreviewBubble draws a rounded thumbnail of the target frame above the
 // slider thumb, tracking it horizontally (clamped so it stays on-screen),
-// with the target time below it.
+// with the target time (hh:mm:ss) overlaid INSIDE the image, bottom-center.
+// The time must live inside the image box: a label below it lands in the
+// slider row area, where the Slider (emitted later, thus drawn on top)
+// covers it — that was a real bug reported from device testing.
 @Composable
 private fun SeekPreviewBubble(
     fraction: Float,
@@ -660,37 +666,33 @@ private fun SeekPreviewBubble(
     val offsetXPx = (thumbXPx - bubbleWidthPx / 2f).coerceIn(0f, maxOffset)
     val offsetXDp = with(density) { offsetXPx.toDp() }
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
         modifier = modifier
-            .offset(x = offsetXDp, y = (-(PREVIEW_H_DP + 28)).dp),
+            .offset(x = offsetXDp, y = (-(PREVIEW_H_DP + 12)).dp)
+            .width(PREVIEW_W_DP.dp)
+            .height(PREVIEW_H_DP.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black),
     ) {
-        Box(
-            modifier = Modifier
-                .width(PREVIEW_W_DP.dp)
-                .height(PREVIEW_H_DP.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.Black),
-        ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(seekPreview(previewSec))
-                    // Instant swap while scrubbing — crossfade lags behind
-                    // rapid drags and looks worse than a hard cut.
-                    .crossfade(false)
-                    .build(),
-                imageLoader = imageLoader,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        Spacer(modifier = Modifier.height(4.dp))
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(seekPreview(previewSec))
+                // Instant swap while scrubbing — crossfade lags behind
+                // rapid drags and looks worse than a hard cut.
+                .crossfade(false)
+                .build(),
+            imageLoader = imageLoader,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+        )
         Text(
-            text = formatTime(targetMs),
+            text = formatTimeHms(targetMs),
             color = Color.White,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 4.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(Color.Black.copy(alpha = 0.7f))
                 .padding(horizontal = 6.dp, vertical = 2.dp),
@@ -749,7 +751,7 @@ private fun SeekFeedbackOverlay(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                 ) {
                     Text(
-                        text = formatTime(currentPos),
+                        text = formatTimeHms(currentPos),
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
@@ -757,7 +759,7 @@ private fun SeekFeedbackOverlay(
                     )
                     Text(text = " / ", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
                     Text(
-                        text = formatTime(duration),
+                        text = formatTimeHms(duration),
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = 14.sp,
                     )
@@ -887,6 +889,21 @@ private fun BottomControls(
             )
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
+        // Jump-to-time: tapping the current-position label opens a dialog
+        // accepting hh:mm:ss / mm:ss / seconds. Only when duration is known
+        // (same condition as the slider).
+        var showJumpDialog by remember { mutableStateOf(false) }
+        if (showJumpDialog) {
+            JumpToTimeDialog(
+                durationMs = duration,
+                onJump = { targetMs ->
+                    onSeek(targetMs)
+                    showJumpDialog = false
+                },
+                onDismiss = { showJumpDialog = false },
+            )
+        }
+
         // Progress bar with A/B marker lines
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -896,7 +913,9 @@ private fun BottomControls(
                 text = formatTime(currentPosition),
                 color = Color.White.copy(alpha = 0.9f),
                 fontSize = 12.sp,
-                modifier = Modifier.width(50.dp),
+                modifier = Modifier
+                    .width(50.dp)
+                    .clickable(enabled = duration > 0) { showJumpDialog = true },
             )
             var sliderRowWidthPx by remember { mutableIntStateOf(0) }
             Box(
@@ -1236,4 +1255,101 @@ private fun formatTime(ms: Long): String {
     } else {
         String.format("%02d:%02d", min, sec)
     }
+}
+
+// ============================================================================
+// Jump-to-time dialog — opened by tapping the current-position label
+// ============================================================================
+
+@Composable
+private fun JumpToTimeDialog(
+    durationMs: Long,
+    onJump: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+    var invalid by remember { mutableStateOf(false) }
+
+    fun tryJump() {
+        val ms = parseTimeInput(input)
+        if (ms == null || (durationMs > 0 && ms > durationMs)) {
+            invalid = true
+            return
+        }
+        onJump(ms)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.player_jump_title)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        invalid = false
+                    },
+                    singleLine = true,
+                    placeholder = { Text("hh:mm:ss") },
+                    isError = invalid,
+                )
+                if (invalid) {
+                    Text(
+                        text = stringResource(R.string.player_jump_invalid),
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { tryJump() }) {
+                Text(stringResource(android.R.string.ok))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(android.R.string.cancel))
+            }
+        },
+    )
+}
+
+/**
+ * Always-zero-padded hh:mm:ss, used where the user asked to see the full
+ * clock position while scrubbing (seek-preview bubble, gesture overlay,
+ * jump-to-time dialog). [formatTime] stays compact for the bar labels.
+ */
+internal fun formatTimeHms(ms: Long): String {
+    val totalSec = ms.coerceAtLeast(0L) / 1000
+    val hours = totalSec / 3600
+    val min = (totalSec % 3600) / 60
+    val sec = totalSec % 60
+    return String.format("%02d:%02d:%02d", hours, min, sec)
+}
+
+/**
+ * Parses user time input for the jump-to-time dialog into milliseconds.
+ * Accepts "hh:mm:ss", "mm:ss", or plain seconds. Returns null for
+ * malformed input (non-numeric, negative, >2 separators, or minute/second
+ * fields >= 60 when a higher field is present).
+ */
+internal fun parseTimeInput(text: String): Long? {
+    val parts = text.trim().split(":")
+    if (parts.isEmpty() || parts.size > 3 || parts.any { it.isBlank() }) return null
+    val nums = parts.map { it.trim().toLongOrNull() ?: return null }
+    if (nums.any { it < 0 }) return null
+    val totalSec = when (nums.size) {
+        1 -> nums[0]
+        2 -> {
+            if (nums[1] > 59) return null
+            nums[0] * 60 + nums[1]
+        }
+        else -> {
+            if (nums[1] > 59 || nums[2] > 59) return null
+            nums[0] * 3600 + nums[1] * 60 + nums[2]
+        }
+    }
+    return totalSec * 1000
 }

@@ -189,4 +189,8 @@
 
     <!-- Media preview: transcode playback -->
     <string name="transcode_active">Server transcoding</string>
+
+    <!-- Media preview: jump to time -->
+    <string name="player_jump_title">Jump to time</string>
+    <string name="player_jump_invalid">Invalid time (use hh:mm:ss)</string>
 </resources>

@@ -189,4 +189,8 @@
 
     <!-- Media preview: transcode playback -->
     <string name="transcode_active">サーバー変換再生</string>
+
+    <!-- Media preview: jump to time -->
+    <string name="player_jump_title">時間指定ジャンプ</string>
+    <string name="player_jump_invalid">時間の形式が不正です（hh:mm:ss）</string>
 </resources>
