@@ -668,45 +668,52 @@ private fun SeekPreviewBubble(
     val offsetXPx = (thumbXPx - bubbleWidthPx / 2f).coerceIn(0f, maxOffset)
     val offsetXDp = with(density) { offsetXPx.toDp() }
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        // Offset places the WHOLE column (label + gap + image) above the
-        // slider row: image height + label ~24dp + gap 4dp + margin ~12dp.
-        // The label sits ABOVE the image (user request: don't overlap the
-        // thumbnail); above is z-order-safe — only below-the-image labels
-        // collide with the Slider, which draws later in the same Box.
+    // The bubble lives inside the 48dp-high slider row Box. WITHOUT
+    // unbounded measurement, the incoming max-height constraint CLAMPS the
+    // 180dp image box to 48dp — the image then letterboxes inside a wide,
+    // short black frame and looks tiny (real device report).
+    // wrapContentSize(unbounded = true) measures the content at its true
+    // size; the offset then lifts the whole column (label + gap + image)
+    // above the slider row.
+    Box(
         modifier = modifier
-            .offset(x = offsetXDp, y = (-(PREVIEW_H_DP + 40)).dp),
+            .offset(x = offsetXDp, y = (-(PREVIEW_H_DP + 42)).dp)
+            .wrapContentSize(align = Alignment.TopStart, unbounded = true),
     ) {
-        Text(
-            text = formatTimeHms(targetMs),
-            color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color.Black.copy(alpha = 0.7f))
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Box(
-            modifier = Modifier
-                .width(PREVIEW_W_DP.dp)
-                .height(PREVIEW_H_DP.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.Black),
-        ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(seekPreview(previewSec))
-                    // Instant swap while scrubbing — crossfade lags behind
-                    // rapid drags and looks worse than a hard cut.
-                    .crossfade(false)
-                    .build(),
-                imageLoader = imageLoader,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Time pill ABOVE the image (must not overlap the thumbnail).
+            // Never place it BELOW: that lands in the slider row where the
+            // Slider (drawn later) covers it.
+            Text(
+                text = formatTimeHms(targetMs),
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
             )
+            Spacer(modifier = Modifier.height(4.dp))
+            Box(
+                modifier = Modifier
+                    .width(PREVIEW_W_DP.dp)
+                    .height(PREVIEW_H_DP.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black),
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(seekPreview(previewSec))
+                        // Instant swap while scrubbing — crossfade lags behind
+                        // rapid drags and looks worse than a hard cut.
+                        .crossfade(false)
+                        .build(),
+                    imageLoader = imageLoader,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }
