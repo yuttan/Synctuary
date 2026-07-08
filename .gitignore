@@ -21,6 +21,10 @@ go.work.sum
 # Module download cache (if vendored)
 synctuary-server/vendor/
 
+# ---- Bundled ffmpeg for the Windows installer (fetched, never committed) ----
+# Populated by synctuary-server/deploy/windows/fetch-ffmpeg.ps1 before ISCC.
+synctuary-server/deploy/windows/ffmpeg/
+
 # ---- Daemon runtime artefacts (NEVER commit these) ----
 # Master key, device tokens, server-issued data, SQLite DBs, master mnemonic
 # Smoke-test / development server roots:
