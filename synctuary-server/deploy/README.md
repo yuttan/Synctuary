@@ -223,6 +223,25 @@ go build -ldflags="-X main.serverVersion=0.7.0 -X main.commit=$(git rev-parse --
 5. **Write down the seed phrase** and click "I have saved my seed phrase"
 6. The dashboard appears; go to Pairing to connect your Android device
 
+### Optional: `ffmpeg` for video thumbnails and transcode playback
+
+Two features need `ffmpeg` available on the system `PATH`:
+
+- **Video thumbnails** in the file browser (frame grab at the 1s mark)
+- **Transcode playback** (§6.6) — on-the-fly re-encoding of legacy formats
+  (`.avi`, `.flv`, `.wmv`, `.vob`, …) so they play in the Android client when
+  its native decoder can't handle the source container/codec
+
+Both degrade gracefully: without `ffmpeg`, video thumbnails are simply
+unavailable and the `transcode` capability advertises `false` (the endpoint
+returns `503 transcoder_unavailable`). Everything else works unchanged.
+
+To enable on Windows, download a static `ffmpeg` build (e.g. from
+gyan.dev or BtbN), and either add its `bin` directory to `PATH` or drop
+`ffmpeg.exe` next to `synctuaryd.exe`. Restart the server; it detects
+`ffmpeg` at startup. The **Docker image already bundles a static `ffmpeg`**,
+so container deployments need no extra setup.
+
 ### Enable IPv6 remote access
 
 Edit `%LOCALAPPDATA%\Synctuary\config.yml`:

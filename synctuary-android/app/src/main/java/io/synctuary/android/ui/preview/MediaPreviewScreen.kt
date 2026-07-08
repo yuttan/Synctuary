@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,6 +60,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -68,12 +70,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import io.synctuary.android.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,6 +91,9 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -150,10 +159,22 @@ fun MediaPreviewScreen(
         }
     }
 
+    // Collect player state early so the player reference below can react to
+    // transcode fallback (which swaps the ExoPlayer instance inside the VM).
+    val state by videoPlayerVm.playerState.collectAsStateWithLifecycle()
+    val loopState by videoPlayerVm.loopState.collectAsStateWithLifecycle()
+
     // Get or build ExoPlayer — survives config changes (orientation, fullscreen)
     // because the ViewModel holds the player across recompositions (#5).
+    // Keyed on playerGeneration: the VM bumps it on EVERY player instance
+    // swap (transcode fallback and transcode seek-by-restart), so we always
+    // re-read the live instance and re-bind it to the PlayerView. Keying on
+    // transcodeActive alone would miss seek restarts and leave the view
+    // attached to a released player (frozen video).
     val contentUrl = videoPlayerVm.contentUrl(remotePath)
-    val exoPlayer = remember { videoPlayerVm.getOrBuildPlayer(remotePath, contentUrl) }
+    val exoPlayer = remember(state.playerGeneration) {
+        videoPlayerVm.getOrBuildPlayer(remotePath, contentUrl)
+    }
 
     // Release player and restore orientation when leaving this screen.
     // Using DisposableEffect ensures this runs regardless of how the user
@@ -209,10 +230,6 @@ fun MediaPreviewScreen(
         currentSpeed = videoPlayerVm.getCurrentSpeed()
     }
 
-    // Collect player state
-    val state by videoPlayerVm.playerState.collectAsStateWithLifecycle()
-    val loopState by videoPlayerVm.loopState.collectAsStateWithLifecycle()
-
     // Update orientation when actual video dimensions become available.
     // The initial fullscreen call uses 0×0 (defaults to landscape);
     // once ExoPlayer reports the real size, re-orient for portrait videos.
@@ -252,6 +269,11 @@ fun MediaPreviewScreen(
                 },
                 update = { pv ->
                     pv.resizeMode = if (isFullscreen) AspectRatioFrameLayout.RESIZE_MODE_FIT else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    // Re-bind on transcode fallback: the VM swaps the ExoPlayer
+                    // instance, and `exoPlayer` here is keyed on transcodeActive.
+                    if (pv.player !== exoPlayer) {
+                        pv.player = exoPlayer
+                    }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -419,7 +441,12 @@ fun MediaPreviewScreen(
 
             // Gesture feedback overlays (visual only, no touch needed)
             seekFeedback?.let { (pos, dur) ->
-                SeekFeedbackOverlay(currentPos = pos, duration = dur)
+                SeekFeedbackOverlay(
+                    currentPos = pos,
+                    duration = dur,
+                    seekPreview = { seconds -> viewModel.thumbnailUrl(remotePath, size = 320, timeSeconds = seconds) },
+                    imageLoader = viewModel.imageLoader,
+                )
             }
 
             overlayFeedback?.let { feedback ->
@@ -454,6 +481,8 @@ fun MediaPreviewScreen(
                     onSetLoopA = { videoPlayerVm.setLoopPointA(state.currentPosition) },
                     onSetLoopB = { videoPlayerVm.setLoopPointB(state.currentPosition) },
                     onClearLoop = { videoPlayerVm.clearLoop() },
+                    seekPreview = { seconds -> viewModel.thumbnailUrl(remotePath, size = 320, timeSeconds = seconds) },
+                    previewImageLoader = viewModel.imageLoader,
                 )
             }
 
@@ -518,6 +547,27 @@ fun MediaPreviewScreen(
                     )
                 }
             }
+
+            // Transcode indicator — shown when the file couldn't be played
+            // directly and playback fell back to server-side transcoding.
+            AnimatedVisibility(
+                visible = state.transcodeActive && controlsVisible && !isLocked,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 72.dp),
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.transcode_active),
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+            }
         }
 
     // Speed selection dialog
@@ -567,38 +617,151 @@ data class DoubleTapIndicator(
 )
 
 // ============================================================================
+// Seek-preview thumbnails (YouTube-style scrubbing)
+// ============================================================================
+
+private const val PREVIEW_W_DP = 160
+private const val PREVIEW_H_DP = 90
+private const val PREVIEW_THUMB_SIZE = 320
+
+// bucketPreviewSeconds stabilizes the requested timestamp so back-and-forth
+// scrubbing reuses the same URLs (and therefore Coil's memory/disk cache)
+// instead of hammering the server with one request per pixel of drag. The
+// bucket widens with duration so a 3-hour movie doesn't generate thousands
+// of distinct 1-second frames.
+private fun bucketPreviewSeconds(targetMs: Long, durationMs: Long): Long {
+    val targetSec = targetMs / 1000
+    val durationSec = durationMs / 1000
+    val bucket = (durationSec / 100).coerceAtLeast(2)
+    return (targetSec / bucket) * bucket
+}
+
+// SeekPreviewBubble draws a rounded thumbnail of the target frame above the
+// slider thumb, tracking it horizontally (clamped so it stays on-screen),
+// with the target time below it.
+@Composable
+private fun SeekPreviewBubble(
+    fraction: Float,
+    targetMs: Long,
+    durationMs: Long,
+    rowWidthPx: Int,
+    seekPreview: (seconds: Long) -> String,
+    imageLoader: ImageLoader,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val previewSec = bucketPreviewSeconds(targetMs, durationMs)
+    val bubbleWidthPx = with(density) { PREVIEW_W_DP.dp.toPx() }
+
+    // Center the bubble on the thumb, then clamp so it never overflows the
+    // slider row horizontally.
+    val thumbXPx = fraction.coerceIn(0f, 1f) * rowWidthPx
+    val maxOffset = (rowWidthPx - bubbleWidthPx).coerceAtLeast(0f)
+    val offsetXPx = (thumbXPx - bubbleWidthPx / 2f).coerceIn(0f, maxOffset)
+    val offsetXDp = with(density) { offsetXPx.toDp() }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .offset(x = offsetXDp, y = (-(PREVIEW_H_DP + 28)).dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(PREVIEW_W_DP.dp)
+                .height(PREVIEW_H_DP.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black),
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(seekPreview(previewSec))
+                    // Instant swap while scrubbing — crossfade lags behind
+                    // rapid drags and looks worse than a hard cut.
+                    .crossfade(false)
+                    .build(),
+                imageLoader = imageLoader,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = formatTime(targetMs),
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.Black.copy(alpha = 0.7f))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+// ============================================================================
 // Seek Feedback Overlay — centered pill showing current time / duration
 // ============================================================================
 
 @Composable
-private fun SeekFeedbackOverlay(currentPos: Long, duration: Long) {
+private fun SeekFeedbackOverlay(
+    currentPos: Long,
+    duration: Long,
+    seekPreview: ((seconds: Long) -> String)? = null,
+    imageLoader: ImageLoader? = null,
+) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.padding(16.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Thumbnail of the target frame above the time pill. Uses the
+            // same bucketing as the slider bubble so scrubbing back and
+            // forth reuses cached URLs.
+            if (seekPreview != null && imageLoader != null && duration > 0) {
+                val previewSec = bucketPreviewSeconds(currentPos, duration)
+                Box(
+                    modifier = Modifier
+                        .width(PREVIEW_W_DP.dp)
+                        .height(PREVIEW_H_DP.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black),
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(seekPreview(previewSec))
+                            .crossfade(false)
+                            .build(),
+                        imageLoader = imageLoader,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.padding(16.dp),
             ) {
-                Text(
-                    text = formatTime(currentPos),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    fontFamily = MaterialTheme.typography.bodyLarge.fontFamily,
-                )
-                Text(text = " / ", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
-                Text(
-                    text = formatTime(duration),
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 14.sp,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = formatTime(currentPos),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        fontFamily = MaterialTheme.typography.bodyLarge.fontFamily,
+                    )
+                    Text(text = " / ", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+                    Text(
+                        text = formatTime(duration),
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 14.sp,
+                    )
+                }
             }
         }
     }
@@ -709,6 +872,11 @@ private fun BottomControls(
     onSetLoopA: () -> Unit,
     onSetLoopB: () -> Unit,
     onClearLoop: () -> Unit,
+    // seekPreview maps a target position (whole seconds) to a thumbnail
+    // URL for the scrubbing preview bubble. null disables the feature
+    // (keeps BottomControls independent of PreviewViewModel for testing).
+    seekPreview: ((seconds: Long) -> String)? = null,
+    previewImageLoader: ImageLoader? = null,
 ) {
     Column(
         modifier = Modifier
@@ -730,18 +898,62 @@ private fun BottomControls(
                 fontSize = 12.sp,
                 modifier = Modifier.width(50.dp),
             )
-            Box(modifier = Modifier.weight(1f).height(48.dp)) {
+            var sliderRowWidthPx by remember { mutableIntStateOf(0) }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp)
+                    .onGloballyPositioned { sliderRowWidthPx = it.size.width },
+            ) {
+                // Seek only on drag RELEASE, not continuously. Per-tick
+                // seeking spammed player.seekTo in direct mode and, in
+                // transcode mode, restarted the whole ffmpeg stream on
+                // every drag movement. While dragging, dragFraction drives
+                // the thumb locally; the single onSeek fires on release.
+                // duration <= 0 (unknown, e.g. C.TIME_UNSET during a WMV
+                // transcode) disables seeking entirely — fraction * TIME_UNSET
+                // used to produce a negative target that clamped to 0 and
+                // sent playback back to the start.
+                var dragFraction by remember { mutableStateOf<Float?>(null) }
+
+                // Seek-preview bubble: while dragging, show a thumbnail of the
+                // target frame above the thumb, tracking it horizontally.
+                if (seekPreview != null && previewImageLoader != null) {
+                    dragFraction?.let { fraction ->
+                        if (duration > 0) {
+                            SeekPreviewBubble(
+                                fraction = fraction,
+                                targetMs = (fraction * duration).toLong(),
+                                durationMs = duration,
+                                rowWidthPx = sliderRowWidthPx,
+                                seekPreview = seekPreview,
+                                imageLoader = previewImageLoader,
+                                modifier = Modifier.align(Alignment.TopStart),
+                            )
+                        }
+                    }
+                }
                 androidx.compose.material3.Slider(
-                    value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                    value = dragFraction
+                        ?: if (duration > 0) currentPosition.toFloat() / duration else 0f,
                     onValueChange = { fraction ->
-                        onSeek((fraction * duration).toLong())
+                        if (duration > 0) dragFraction = fraction
                     },
+                    onValueChangeFinished = {
+                        dragFraction?.let { fraction ->
+                            onSeek((fraction * duration).toLong())
+                        }
+                        dragFraction = null
+                    },
+                    enabled = duration > 0,
                     valueRange = 0f..1f,
                     modifier = Modifier.fillMaxWidth(),
                     colors = androidx.compose.material3.SliderDefaults.colors(
                         thumbColor = Color.White,
                         activeTrackColor = MaterialTheme.colorScheme.primary,
                         inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+                        disabledThumbColor = Color.White.copy(alpha = 0.4f),
+                        disabledInactiveTrackColor = Color.White.copy(alpha = 0.2f),
                     ),
                 )
                 // A/B marker lines drawn on top of the slider track

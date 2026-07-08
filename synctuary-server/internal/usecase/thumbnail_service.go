@@ -11,7 +11,9 @@ import (
 	_ "image/png"
 	"io"
 	"log/slog"
+	"math"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +53,20 @@ func (s *ThumbnailService) WithStorage(storage file.FileStorage) *ThumbnailServi
 }
 
 func (s *ThumbnailService) Get(ctx context.Context, path string, size int) (*file.Thumbnail, error) {
+	return s.GetAt(ctx, path, size, 0)
+}
+
+// GetAt returns a thumbnail for path at size (px, longest side). When
+// tSeconds <= 0 the behavior is identical to Get: for images and videos
+// alike a DB-cached thumbnail is served/generated, with the video frame
+// taken at the fixed 1s mark.
+//
+// When tSeconds > 0 the request is video-only (images are rejected with
+// the unsupported-mime error) and a frame is extracted at that timestamp
+// via ffmpeg's fast input-side -ss. Arbitrary-t frames are NOT written to
+// the SQLite cache — a seek-preview scrub can request hundreds of distinct
+// timestamps and would bloat the cache; the client HTTP-caches instead.
+func (s *ThumbnailService) GetAt(ctx context.Context, path string, size int, tSeconds float64) (*file.Thumbnail, error) {
 	if size <= 0 {
 		size = DefaultThumbSize
 	}
@@ -67,6 +83,30 @@ func (s *ThumbnailService) Get(ctx context.Context, path string, size int) (*fil
 		return nil, fmt.Errorf("thumbnail: unsupported mime %q", meta.MimeType)
 	}
 
+	// Arbitrary-timestamp path: video-only, uncached.
+	if tSeconds > 0 {
+		if !isVideo(meta.MimeType) {
+			return nil, fmt.Errorf("thumbnail: unsupported mime %q for timestamped frame", meta.MimeType)
+		}
+		absPath, err := s.storage.Resolve(ctx, path)
+		if err != nil {
+			return nil, fmt.Errorf("thumbnail: resolve path: %w", err)
+		}
+		data, err := generateFromVideo(ctx, absPath, size, tSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("thumbnail: video generate: %w", err)
+		}
+		return &file.Thumbnail{
+			Path:        path,
+			Format:      "jpeg",
+			Width:       size,
+			Height:      size,
+			Data:        data,
+			SourceHash:  hex.EncodeToString(meta.SHA256),
+			GeneratedAt: time.Now().Unix(),
+		}, nil
+	}
+
 	currentHash := hex.EncodeToString(meta.SHA256)
 
 	cached, err := s.thumbs.Get(ctx, path, size, size)
@@ -80,7 +120,7 @@ func (s *ThumbnailService) Get(ctx context.Context, path string, size int) (*fil
 		if err != nil {
 			return nil, fmt.Errorf("thumbnail: resolve path: %w", err)
 		}
-		data, err = generateFromVideo(ctx, absPath, size)
+		data, err = generateFromVideo(ctx, absPath, size, 0)
 		if err != nil {
 			return nil, fmt.Errorf("thumbnail: video generate: %w", err)
 		}
@@ -145,16 +185,9 @@ func isVideo(mime string) bool {
 	return strings.HasPrefix(mime, "video/")
 }
 
-func generateFromVideo(ctx context.Context, absPath string, size int) ([]byte, error) {
-	cmd := exec.CommandContext(ctx,
-		"ffmpeg",
-		"-ss", "1",
-		"-i", absPath,
-		"-vframes", "1",
-		"-f", "image2pipe",
-		"-vcodec", "png",
-		"-",
-	)
+func generateFromVideo(ctx context.Context, absPath string, size int, tSeconds float64) ([]byte, error) {
+	args := buildVideoThumbArgs(absPath, tSeconds)
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -162,4 +195,27 @@ func generateFromVideo(ctx context.Context, absPath string, size int) ([]byte, e
 		return nil, fmt.Errorf("ffmpeg: %w (stderr: %s)", err, stderr.String())
 	}
 	return generate(&stdout, size)
+}
+
+// buildVideoThumbArgs constructs the ffmpeg argument vector for a single
+// PNG frame extraction on stdout. Extracted as a pure function so the -ss
+// placement — input-side (BEFORE -i) for a fast keyframe seek — is
+// unit-testable without invoking ffmpeg.
+//
+// tSeconds <= 0 (or non-finite) falls back to the fixed 1s mark, matching
+// the historical default. tSeconds > 0 seeks to that timestamp, formatted
+// with 3 decimals for sub-second precision.
+func buildVideoThumbArgs(absPath string, tSeconds float64) []string {
+	ss := "1"
+	if tSeconds > 0 && !math.IsInf(tSeconds, 0) && !math.IsNaN(tSeconds) {
+		ss = strconv.FormatFloat(tSeconds, 'f', 3, 64)
+	}
+	return []string{
+		"-ss", ss,
+		"-i", absPath,
+		"-vframes", "1",
+		"-f", "image2pipe",
+		"-vcodec", "png",
+		"-",
+	}
 }

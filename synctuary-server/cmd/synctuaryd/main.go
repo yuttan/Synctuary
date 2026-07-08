@@ -64,7 +64,7 @@ import (
 // protocolVersion is the wire spec the server implements. It's a
 // hard property of the codebase (ABI), so it stays a const — never
 // override at link time.
-const protocolVersion = "0.3.0"
+const protocolVersion = "0.3.1"
 
 // serverVersion and commit are advertised via /api/v1/info and are
 // overridable at link time via:
@@ -220,6 +220,7 @@ func main() {
 		os.Exit(1)
 	}
 	thumbSvc := usecase.NewThumbnailService(thumbRepo, storage, logger)
+	transcodeSvc := usecase.NewTranscodeService(storage, logger)
 	deviceSvc := usecaseDevice(deviceRepo)
 	favoriteSvc, err := usecase.NewFavoriteService(favoriteRepo, nil)
 	if err != nil {
@@ -409,6 +410,7 @@ func main() {
 		Pairing:          pairingSvc,
 		Files:            fileSvc,
 		Thumbnails:       thumbSvc,
+		Transcoder:       transcodeSvc,
 		Devices:          deviceSvc,
 		Favorites:        favoriteSvc,
 		Shares:           shareSvc,
@@ -433,6 +435,7 @@ func main() {
 			"private_mode":     false,
 			"parallel_upload":  false,
 			"if_none_match":    false,
+			"transcode":        transcodeSvc.Available(),
 		},
 	})
 	if err != nil {

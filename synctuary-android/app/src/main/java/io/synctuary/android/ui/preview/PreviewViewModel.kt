@@ -82,9 +82,12 @@ class PreviewViewModel(application: Application) : AndroidViewModel(application)
         return "${baseUrl()}/api/v1/files/content?path=${Uri.encode(remotePath)}$shareParam"
     }
 
-    fun thumbnailUrl(remotePath: String, size: Int = 256): String {
+    // timeSeconds > 0 requests a seek-preview frame at that timestamp
+    // (PROTOCOL §6.7 `t` param). 0 keeps the default DB-cached thumbnail.
+    fun thumbnailUrl(remotePath: String, size: Int = 256, timeSeconds: Long = 0): String {
         val shareParam = currentShareId?.let { "&share=${Uri.encode(it)}" } ?: ""
-        return "${baseUrl()}/api/v1/files/thumbnail?path=${Uri.encode(remotePath)}&size=$size$shareParam"
+        val timeParam = if (timeSeconds > 0) "&t=$timeSeconds" else ""
+        return "${baseUrl()}/api/v1/files/thumbnail?path=${Uri.encode(remotePath)}&size=$size$shareParam$timeParam"
     }
 
     override fun onCleared() {
