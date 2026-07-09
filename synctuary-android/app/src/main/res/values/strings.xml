@@ -193,4 +193,14 @@
     <!-- Media preview: jump to time -->
     <string name="player_jump_title">Jump to time</string>
     <string name="player_jump_invalid">Invalid time (use hh:mm:ss)</string>
+
+    <!-- Archive browsing / extraction -->
+    <string name="action_extract">Extract</string>
+    <string name="archive_extract_success">Extracted: %1$s</string>
+    <string name="archive_extract_failed">Extract failed: %1$s</string>
+    <string name="archive_preview_unsupported">Preview not supported</string>
+    <string name="archive_empty">This archive is empty</string>
+    <string name="archive_root">Archive</string>
+    <string name="archive_folder">Folder</string>
+    <string name="archive_back">Back</string>
 </resources>

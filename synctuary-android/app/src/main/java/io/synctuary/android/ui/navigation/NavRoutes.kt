@@ -22,6 +22,15 @@ sealed class NavRoute(val route: String) {
             "preview/media?path=${android.net.Uri.encode(path)}"
     }
 
+    // Archive browser (full-screen, no bottom nav). `path` is the archive
+    // file's path; `share` scopes it to a drive (optional).
+    data object ArchiveBrowser : NavRoute("archive?path={path}&share={share}") {
+        fun createRoute(path: String, share: String?): String {
+            val shareParam = share?.let { "&share=${android.net.Uri.encode(it)}" } ?: ""
+            return "archive?path=${android.net.Uri.encode(path)}$shareParam"
+        }
+    }
+
     // Favorites detail (full-screen, no bottom nav)
     data object FavoriteListDetail : NavRoute("favorites/detail?id={id}&name={name}") {
         fun createRoute(id: String, name: String): String =

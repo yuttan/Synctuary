@@ -39,6 +39,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.synctuary.android.BuildConfig
 import io.synctuary.android.data.secret.SecretStore
+import io.synctuary.android.ui.archive.ArchiveBrowserScreen
+import io.synctuary.android.ui.archive.ArchiveBrowserViewModel
+import io.synctuary.android.ui.archive.isArchiveMime
 import io.synctuary.android.ui.debug.PairingTestScreen
 import io.synctuary.android.ui.devices.DevicesScreen
 import io.synctuary.android.ui.devices.DevicesViewModel
@@ -299,11 +302,19 @@ private fun SynctuaryNavHost() {
                             mime.startsWith("video/") || mime.startsWith("audio/") -> {
                                 val shareId = fileBrowserVm.currentShare.value?.id
                                 videoPlayerVm.currentShareId = shareId
+                                // Normal (non-archive) playback: clear any
+                                // archive scoping left over from a prior
+                                // in-archive media open (reset discipline).
+                                videoPlayerVm.archivePath = null
                                 // previewVm builds the seek-preview thumbnail
                                 // URLs; scope it to the same share so they
                                 // resolve against the correct drive.
                                 previewVm.currentShareId = shareId
                                 navController.navigate(NavRoute.MediaPreview.createRoute(fullPath))
+                            }
+                            isArchiveMime(mime) -> {
+                                val shareId = fileBrowserVm.currentShare.value?.id
+                                navController.navigate(NavRoute.ArchiveBrowser.createRoute(fullPath, shareId))
                             }
                         }
                     },
@@ -456,6 +467,44 @@ private fun SynctuaryNavHost() {
                                     androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
                             }
                         }
+                    },
+                )
+            }
+
+            // Archive browser (full-screen, no bottom nav)
+            composable(
+                route = NavRoute.ArchiveBrowser.route,
+                arguments = listOf(
+                    navArgument("path") { type = NavType.StringType },
+                    navArgument("share") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+                enterTransition = { fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 4 } },
+                exitTransition = { fadeOut(tween(200)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition = { fadeOut(tween(300)) + slideOutVertically(tween(300)) { it / 4 } },
+            ) { backStackEntry ->
+                val archivePath = backStackEntry.arguments?.getString("path") ?: return@composable
+                val shareArg = backStackEntry.arguments?.getString("share")
+                val archiveVm: ArchiveBrowserViewModel = viewModel()
+                ArchiveBrowserScreen(
+                    archivePath = archivePath,
+                    shareId = shareArg,
+                    viewModel = archiveVm,
+                    onBack = { navController.popBackStack() },
+                    onOpenImage = { entryPath, imagePaths ->
+                        previewVm.currentShareId = shareArg
+                        previewVm.setArchiveImageList(archivePath, imagePaths)
+                        navController.navigate(NavRoute.ImagePreview.createRoute(entryPath))
+                    },
+                    onOpenMedia = { entryPath ->
+                        videoPlayerVm.currentShareId = shareArg
+                        videoPlayerVm.archivePath = archivePath
+                        previewVm.currentShareId = shareArg
+                        navController.navigate(NavRoute.MediaPreview.createRoute(entryPath))
                     },
                 )
             }
