@@ -60,6 +60,15 @@ data class ABLoopState(
 
 val DEFAULT_SPEEDS = floatArrayOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f)
 
+// ---- Resume persistence tuning ----
+// Positions under 30s aren't worth resuming; positions within 5s of the
+// end mean the user effectively finished — clear so re-opening starts at 0.
+private const val RESUME_MIN_MS = 30_000L
+private const val RESUME_END_MARGIN_MS = 5_000L
+
+// Cap the persisted resume entries; oldest (by write timestamp) are pruned.
+private const val RESUME_MAX_ENTRIES = 200
+
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class VideoPlayerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -73,8 +82,56 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     var exoPlayer: ExoPlayer? = null
 
-    // In-memory resume position cache: path -> milliseconds
+    // In-memory resume position cache: share-aware key -> milliseconds.
+    // Backed by a plain (NOT encrypted) SharedPreferences file so resume
+    // survives process death; entries are read through lazily and pruned
+    // to RESUME_MAX_ENTRIES by write timestamp.
     private val resumePositions = mutableMapOf<String, Long>()
+
+    private val resumePrefs by lazy {
+        getApplication<Application>()
+            .getSharedPreferences("resume_positions", android.content.Context.MODE_PRIVATE)
+    }
+
+    // Paths are share-relative: the same "/movies/a.avi" can exist in two
+    // shares, so the persistence key includes the share id.
+    private fun resumeKey(path: String) = "${currentShareId ?: "default"}|$path"
+
+    private fun loadResumePosition(path: String): Long {
+        val key = resumeKey(path)
+        resumePositions[key]?.let { return it }
+        val v = resumePrefs.getLong(key, 0L)
+        if (v > 0L) resumePositions[key] = v
+        return v
+    }
+
+    private fun persistResumePosition(path: String, positionMs: Long) {
+        val key = resumeKey(path)
+        resumePositions[key] = positionMs
+        resumePrefs.edit()
+            .putLong(key, positionMs)
+            .putLong("$key#ts", System.currentTimeMillis())
+            .apply()
+        pruneResumePositions()
+    }
+
+    private fun clearResumePosition(path: String) {
+        val key = resumeKey(path)
+        resumePositions.remove(key)
+        resumePrefs.edit().remove(key).remove("$key#ts").apply()
+    }
+
+    private fun pruneResumePositions() {
+        val all = resumePrefs.all
+        val tsKeys = all.keys.filter { it.endsWith("#ts") }
+        if (tsKeys.size <= RESUME_MAX_ENTRIES) return
+        val oldestFirst = tsKeys.sortedBy { (all[it] as? Long) ?: 0L }
+        val editor = resumePrefs.edit()
+        for (tsKey in oldestFirst.take(tsKeys.size - RESUME_MAX_ENTRIES)) {
+            editor.remove(tsKey).remove(tsKey.removeSuffix("#ts"))
+        }
+        editor.apply()
+    }
 
     private var currentPath: String = ""
 
@@ -113,11 +170,13 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun buildPlayer(path: String, contentUrl: String): ExoPlayer {
-        // Release previous player if switching paths.
+        // Release previous player if switching paths. Persist the outgoing
+        // file's position (file-absolute even in transcode mode) BEFORE the
+        // transcode state below is reset.
         exoPlayer?.let { old ->
-            if (old.currentPosition > 30_000) {
-                resumePositions[currentPath] = old.currentPosition
-            }
+            val abs = if (transcodeActive) transcodeBaseOffsetMs + old.currentPosition
+                      else old.currentPosition
+            saveResumePosition(abs)
             old.release()
         }
         // A fresh direct attempt for a new path resets transcode state.
@@ -150,11 +209,17 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         player.playWhenReady = true
 
         // Restore resume position — only for direct playback. In transcode
-        // mode seeking is done by restarting the stream at a `start` offset,
-        // so a stream-local seek would be wrong.
+        // mode seeking is done by restarting the stream at a `start` offset
+        // (see the onPlayerError fallback, which passes the resume second).
+        //
+        // NOTE: no duration guard here. At this point prepare() hasn't
+        // completed and player.duration is still C.TIME_UNSET (negative), so
+        // the old `player.duration > resumePos` check was always false and
+        // resume silently never happened. ExoPlayer queues a pre-prepare
+        // seek and clamps out-of-range targets, so a bare seekTo is safe.
         if (!transcode) {
-            val resumePos = resumePositions[path] ?: 0L
-            if (resumePos > 0 && player.duration > resumePos) {
+            val resumePos = loadResumePosition(path)
+            if (resumePos > 0) {
                 player.seekTo(resumePos)
             }
         }
@@ -168,6 +233,8 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 _playerState.update { it.copy(isReady = playbackState != Player.STATE_IDLE, error = null) }
                 if (playbackState == Player.STATE_ENDED) {
                     _playerState.update { it.copy(isPlaying = false) }
+                    // Watched to the end: re-opening should start from 0.
+                    clearResumePosition(path)
                     return
                 }
                 if (transcode) {
@@ -209,9 +276,11 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
             override fun onPlayerError(error: PlaybackException) {
                 // If a direct attempt failed because the container/codec is
-                // unplayable, transparently fall back to server transcode.
+                // unplayable, transparently fall back to server transcode —
+                // starting at the saved resume position, since the direct
+                // attempt's pre-prepare resume seek died with the player.
                 if (!transcode && isTranscodableError(error)) {
-                    startTranscodeFallback(path)
+                    startTranscodeFallback(path, loadResumePosition(path) / 1000L)
                     return
                 }
                 _playerState.update { it.copy(error = error.errorCodeName) }
@@ -267,13 +336,13 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         }
         exoPlayer = buildPlayerInternal(path, transcodeUrl(path, startSeconds), transcode = true)
 
-        // On the FIRST fallback (triggered from onPlayerError at offset 0), the
-        // direct attempt may have died during container parsing before any
-        // duration was known — leaving the seek bar disabled. Fetch the
-        // duration out-of-band from the server so the slider, seek-preview
-        // bubble, and seek-by-restart all enable. Skip on seek-restarts
-        // (startSeconds > 0), which reuse the already-known duration.
-        if (startSeconds == 0L && knownDurationMs <= 0L) {
+        // When the duration is still unknown (the direct attempt died during
+        // container parsing before any metadata), fetch it out-of-band so the
+        // slider, seek-preview bubble, and seek-by-restart all enable. Gated
+        // on knownDurationMs only — the first fallback can now start at a
+        // resume offset (startSeconds > 0), and seek-restarts naturally skip
+        // this because the duration is already known by then.
+        if (knownDurationMs <= 0L) {
             viewModelScope.launch {
                 val ms = fetchMediaInfo(path) ?: return@launch
                 if (ms > 0L) {
@@ -352,6 +421,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             // requested file-absolute second. `position` is already
             // file-absolute (the UI's seek bar uses the displayed duration).
             val target = position.coerceAtLeast(0L)
+            saveResumePosition(target)
             startTranscodeFallback(currentPath, target / 1000L)
             return
         }
@@ -364,6 +434,7 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
             // File-absolute position = base offset + stream-local position.
             val abs = transcodeBaseOffsetMs + p.currentPosition
             val target = (abs + deltaMs).coerceAtLeast(0L)
+            saveResumePosition(target)
             startTranscodeFallback(currentPath, target / 1000L)
             return
         }
@@ -386,9 +457,21 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         return exoPlayer?.playbackParameters?.speed ?: 1f
     }
 
+    /**
+     * Persist [position] (file-absolute ms) as the resume point for the
+     * current file. Positions under [RESUME_MIN_MS] are ignored; positions
+     * within [RESUME_END_MARGIN_MS] of a known duration clear the entry
+     * instead (the user effectively finished the video).
+     */
     fun saveResumePosition(position: Long) {
-        if (currentPath.isNotEmpty() && position > 30_000) {
-            resumePositions[currentPath] = position
+        if (currentPath.isEmpty()) return
+        val dur = knownDurationMs
+        if (dur > 0 && position >= dur - RESUME_END_MARGIN_MS) {
+            clearResumePosition(currentPath)
+            return
+        }
+        if (position > RESUME_MIN_MS) {
+            persistResumePosition(currentPath, position)
         }
     }
 
@@ -463,11 +546,11 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     /** Release the player when leaving the media screen. Saves resume position. */
     fun releasePlayer() {
         exoPlayer?.let { p ->
-            // Only persist a resume position for direct playback; transcode
-            // positions are stream-local (relative to the restart offset).
-            if (!transcodeActive && p.currentPosition > 30_000) {
-                resumePositions[currentPath] = p.currentPosition
-            }
+            // Persist file-absolute position — for transcode playback that
+            // is the restart offset plus the stream-local position.
+            val abs = if (transcodeActive) transcodeBaseOffsetMs + p.currentPosition
+                      else p.currentPosition
+            saveResumePosition(abs)
             p.release()
         }
         exoPlayer = null
