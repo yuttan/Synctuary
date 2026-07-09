@@ -24,10 +24,16 @@ server:
   tls_cert_path: "/etc/synctuary/tls/server.crt"
   tls_key_path:  "/etc/synctuary/tls/server.key"
 
-  # HTTP server timeouts. write_timeout is generous to accommodate
-  # multi-MiB chunk uploads on slow networks.
+  # HTTP server timeouts.
+  #   read_timeout  — max time to read the request (headers + body start).
+  #   write_timeout — absolute deadline on the whole response write. MUST
+  #     be 0 (disabled): a non-zero value silently truncates long-running
+  #     streaming responses (multi-GB downloads, transcode playback that
+  #     streams for the video's full duration, archive-entry streaming,
+  #     large chunk uploads). Bounded API routes are protected by a
+  #     separate per-request timeout in the router instead.
   read_timeout:     30s
-  write_timeout:    5m
+  write_timeout:    0
   shutdown_timeout: 30s
 
 storage:

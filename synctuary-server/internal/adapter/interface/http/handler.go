@@ -69,6 +69,7 @@ type Handler struct {
 	files       *usecase.FileService
 	thumbnails  *usecase.ThumbnailService
 	transcoder  *usecase.TranscodeService
+	archives    *usecase.ArchiveService
 	devices     *usecase.DeviceService
 	favorites   *usecase.FavoriteService
 	shares      *usecase.ShareService
@@ -98,6 +99,7 @@ type HandlerConfig struct {
 	Files            *usecase.FileService
 	Thumbnails       *usecase.ThumbnailService
 	Transcoder       *usecase.TranscodeService
+	Archives         *usecase.ArchiveService
 	Devices          *usecase.DeviceService
 	Favorites        *usecase.FavoriteService
 	Shares           *usecase.ShareService
@@ -134,6 +136,7 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 		files:            cfg.Files,
 		thumbnails:       cfg.Thumbnails,
 		transcoder:       cfg.Transcoder,
+		archives:         cfg.Archives,
 		devices:          cfg.Devices,
 		favorites:        cfg.Favorites,
 		shares:           cfg.Shares,
@@ -157,49 +160,70 @@ func NewHandler(cfg HandlerConfig) (*Handler, error) {
 
 // Register binds all PROTOCOL routes onto r. Authenticated routes are
 // wrapped with BearerAuth; info/pair endpoints are left open (§4, §5).
-func (h *Handler) Register(r chi.Router) {
-	// Unauthenticated.
-	r.Get("/api/v1/info", h.Info)
-	r.Post("/api/v1/pair/nonce", h.PairNonce)
-	r.Post("/api/v1/pair/register", h.PairRegister)
+//
+// apiTimeout is applied ONLY to short, bounded routes. Streaming and
+// other long-running routes (file content, transcode, archive-entry
+// streaming, chunk upload, archive extraction) are registered WITHOUT
+// it, because a per-request context timeout would abort them mid-flight.
+func (h *Handler) Register(r chi.Router, apiTimeout func(http.Handler) http.Handler) {
+	// Unauthenticated (bounded) — timeout applies.
+	r.Group(func(r chi.Router) {
+		r.Use(apiTimeout)
+		r.Get("/api/v1/info", h.Info)
+		r.Post("/api/v1/pair/nonce", h.PairNonce)
+		r.Post("/api/v1/pair/register", h.PairRegister)
+	})
 
 	// Authenticated: bearer-auth middleware wraps this subtree.
 	r.Group(func(r chi.Router) {
 		r.Use(BearerAuth(h.deviceRP, h.log))
 
-		r.Get("/api/v1/files", h.FilesList)
-		r.Delete("/api/v1/files", h.FilesDelete)
+		// Streaming / long-running routes — NO request timeout. These can
+		// legitimately run far longer than 60s (multi-GB downloads,
+		// transcode playback, large chunk uploads, streaming an archive
+		// entry, synchronous whole-archive extraction).
 		r.Get("/api/v1/files/content", h.FilesContent)
-		r.Get("/api/v1/files/thumbnail", h.FilesThumbnail)
 		r.Get("/api/v1/files/transcode", h.FilesTranscode)
-		r.Get("/api/v1/files/mediainfo", h.FilesMediaInfo)
-
-		r.Post("/api/v1/files/upload/init", h.UploadInit)
+		r.Get("/api/v1/files/archive/content", h.FilesArchiveContent)
 		r.Put("/api/v1/files/upload/{id}", h.UploadChunk)
-		r.Get("/api/v1/files/upload/{id}", h.UploadProgress)
-		r.Delete("/api/v1/files/upload/{id}", h.UploadAbort)
+		r.Post("/api/v1/files/archive/extract", h.FilesArchiveExtract)
 
-		r.Post("/api/v1/files/move", h.FilesMove)
+		// Bounded API routes — timeout applies.
+		r.Group(func(r chi.Router) {
+			r.Use(apiTimeout)
 
-		r.Get("/api/v1/devices", h.DevicesList)
-		r.Delete("/api/v1/devices/{id}", h.DeviceRevoke)
+			r.Get("/api/v1/files", h.FilesList)
+			r.Delete("/api/v1/files", h.FilesDelete)
+			r.Get("/api/v1/files/thumbnail", h.FilesThumbnail)
+			r.Get("/api/v1/files/mediainfo", h.FilesMediaInfo)
+			r.Get("/api/v1/files/archive", h.FilesArchiveList)
 
-		// PROTOCOL §8 favorites.
-		r.Get("/api/v1/favorites", h.FavoritesList)
-		r.Post("/api/v1/favorites", h.FavoriteCreate)
-		r.Get("/api/v1/favorites/{id}", h.FavoriteGet)
-		r.Patch("/api/v1/favorites/{id}", h.FavoritePatch)
-		r.Delete("/api/v1/favorites/{id}", h.FavoriteDelete)
-		r.Post("/api/v1/favorites/{id}/items", h.FavoriteItemAdd)
-		r.Delete("/api/v1/favorites/{id}/items", h.FavoriteItemRemove)
+			r.Post("/api/v1/files/upload/init", h.UploadInit)
+			r.Get("/api/v1/files/upload/{id}", h.UploadProgress)
+			r.Delete("/api/v1/files/upload/{id}", h.UploadAbort)
 
-		// §10 shares — client-facing read-only discovery.
-		r.Get("/api/v1/shares", h.SharesListClient)
+			r.Post("/api/v1/files/move", h.FilesMove)
 
-		// §11 pins — per-device Quick Access bookmarks.
-		r.Get("/api/v1/pins", h.PinsList)
-		r.Post("/api/v1/pins", h.PinCreate)
-		r.Delete("/api/v1/pins", h.PinDelete)
+			r.Get("/api/v1/devices", h.DevicesList)
+			r.Delete("/api/v1/devices/{id}", h.DeviceRevoke)
+
+			// PROTOCOL §8 favorites.
+			r.Get("/api/v1/favorites", h.FavoritesList)
+			r.Post("/api/v1/favorites", h.FavoriteCreate)
+			r.Get("/api/v1/favorites/{id}", h.FavoriteGet)
+			r.Patch("/api/v1/favorites/{id}", h.FavoritePatch)
+			r.Delete("/api/v1/favorites/{id}", h.FavoriteDelete)
+			r.Post("/api/v1/favorites/{id}/items", h.FavoriteItemAdd)
+			r.Delete("/api/v1/favorites/{id}/items", h.FavoriteItemRemove)
+
+			// §10 shares — client-facing read-only discovery.
+			r.Get("/api/v1/shares", h.SharesListClient)
+
+			// §11 pins — per-device Quick Access bookmarks.
+			r.Get("/api/v1/pins", h.PinsList)
+			r.Post("/api/v1/pins", h.PinCreate)
+			r.Delete("/api/v1/pins", h.PinDelete)
+		})
 	})
 }
 
