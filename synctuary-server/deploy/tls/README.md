@@ -1,8 +1,8 @@
 # TLS material for Synctuary
 
-> **Auto-generation**: As of v0.7.1, if `tls_cert_path` / `tls_key_path` are configured but the files don't exist, the server automatically generates an ECDSA P-256 self-signed cert with all detected LAN IPs as SANs. Manual generation below is only needed if you want a custom cert (e.g. Let's Encrypt, specific SANs, RSA key).
+> **Auto-generation**: As of v0.7.5, if `tls_cert_path` / `tls_key_path` are configured but the files don't exist, the server automatically generates an ECDSA P-256 self-signed cert with all detected LAN IPs as SANs. Manual generation below is only needed if you want a custom cert (e.g. Let's Encrypt, specific SANs, RSA key).
 
-PROTOCOL §10.2 production mode requires TLS. The server reads:
+PROTOCOL §12 production transport profiles (`tls-ca-verified` / `tls-self-signed`) require TLS. The server reads:
 
 - `server.crt` — PEM-encoded X.509 certificate
 - `server.key` — PEM-encoded private key (matching the cert)
@@ -20,7 +20,7 @@ For systemd installs, replace `65532:65532` with `synctuary:synctuary`.
 
 ## Self-signed cert for LAN-only deployment
 
-This is the typical home setup — no public DNS, no Let's Encrypt, just devices on `192.168.x.x` talking to a single server. The first time each client device pairs, it pins the server's certificate fingerprint (PROTOCOL §3.3); a self-signed cert is the right primitive for this trust model.
+This is the typical home setup — no public DNS, no Let's Encrypt, just devices on `192.168.x.x` talking to a single server. The first time each client device pairs, it pins the server's certificate fingerprint (PROTOCOL §12.1); a self-signed cert is the right primitive for this trust model.
 
 Generate a 4096-bit RSA cert valid for 10 years, with multiple Subject Alternative Names so your phone can hit the server by IP, hostname, or `.local`:
 
@@ -37,7 +37,7 @@ openssl req -x509 \
 
 ### With IPv6 remote access (GUA)
 
-If you use `remote_access.mode: ipv6`, add your server's IPv6 Global Unicast Address to the SAN list. The Synctuary Android app uses fingerprint-based trust (PROTOCOL section 3.3), so SAN matching is not strictly required for the app — but other clients (browsers, curl) do check SANs.
+If you use `remote_access.mode: ipv6`, add your server's IPv6 Global Unicast Address to the SAN list. The Synctuary Android app uses fingerprint-based trust (PROTOCOL section 12.1), so SAN matching is not strictly required for the app — but other clients (browsers, curl) do check SANs.
 
 ```sh
 # Replace 2001:db8::1 with your actual GUA (check `ip -6 addr show scope global`)
@@ -72,7 +72,7 @@ if [ "$DAYS_LEFT" -lt 30 ]; then
 fi
 ```
 
-After regenerating the cert, **the cert fingerprint will change**. Every paired client must re-pair (PROTOCOL §3.3 pin invalidation). Plan accordingly: regenerate well before expiry and re-pair the slowest device first.
+After regenerating the cert, **the cert fingerprint will change**. Every paired client must re-pair (PROTOCOL §12.1 pin invalidation). Plan accordingly: regenerate well before expiry and re-pair the slowest device first.
 
 ## Production-with-public-DNS path
 

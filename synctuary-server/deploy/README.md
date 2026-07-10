@@ -7,7 +7,7 @@ Four supported deployment modes, in increasing order of "I run this on real hard
 3. **[Windows installer](#windows)** — one-click setup for Windows testers
 4. **[Manual](#manual)** — run the binary directly; useful for development
 
-All three result in the same wire-protocol behaviour. Pick whichever fits how you already manage services on the box.
+All four result in the same wire-protocol behaviour. Pick whichever fits how you already manage services on the box.
 
 > **Before you start**: pick a host with at least one filesystem that supports hardlinks (ext4 / xfs / btrfs / ZFS / NTFS / APFS). The dedup path makes a hardlink between content with identical SHA-256; FAT32 and exFAT will fall through to a normal upload, defeating the optimization.
 
@@ -80,8 +80,8 @@ INFO master_key persisted at /data/secret/master_key (mode 0600)
 ```sh
 curl --cacert tls/server.crt https://localhost:8443/api/v1/info | jq
 # {
-#   "protocol_version": "0.2.3",
-#   "server_version":   "0.4.0",
+#   "protocol_version": "0.3.2",
+#   "server_version":   "0.7.10",
 #   "server_id":        "...",
 #   ...
 # }
@@ -197,7 +197,7 @@ cd synctuary-server
 cd web/admin && npm ci && npm run build && cd ../..
 
 # 2. Build the server binary
-go build -ldflags="-X main.serverVersion=0.7.9 -X main.commit=$(git rev-parse --short HEAD)" \
+go build -ldflags="-X main.serverVersion=0.7.10 -X main.commit=$(git rev-parse --short HEAD)" \
     -o synctuaryd.exe ./cmd/synctuaryd
 
 # 3. (optional) Fetch ffmpeg so the installer bundles the transcode/thumbnail
@@ -205,8 +205,8 @@ go build -ldflags="-X main.serverVersion=0.7.9 -X main.commit=$(git rev-parse --
 powershell -ExecutionPolicy Bypass -File deploy/windows/fetch-ffmpeg.ps1
 
 # 4. Compile the installer (requires Inno Setup 6)
-"C:\...\ISCC.exe" /DMyAppVersion=0.7.9 deploy/windows/synctuary.iss
-# Output: deploy/windows/output/SynctuarySetup-0.7.9.exe
+"C:\...\ISCC.exe" /DMyAppVersion=0.7.10 deploy/windows/synctuary.iss
+# Output: deploy/windows/output/SynctuarySetup-0.7.10.exe
 ```
 
 The `.iss` compiles whether or not `fetch-ffmpeg.ps1` has run: the ffmpeg
@@ -329,7 +329,7 @@ The 24-word mnemonic shown at first launch reproduces the master key bit-for-bit
 | `data/meta.db` | Upload-session tracking + favorites lists gone. Devices and master_key survive (different files). Files on disk are still readable but the SHA-256 → path index is rebuilt next time someone uploads the same content. |
 | `data/secret/master_key` | **Catastrophic.** Every paired device dies. Restore from mnemonic; if mnemonic is lost, every device re-pairs from scratch. |
 | `data/staging/` | In-progress uploads aborted; clients retry. Safe to delete while server is running. |
-| TLS key | Cert fingerprint changes; every paired device must re-pair (§3.3 pin invalidation). |
+| TLS key | Cert fingerprint changes; every paired device must re-pair (§12.1 pin invalidation). |
 
 ### Logs
 
@@ -486,5 +486,5 @@ curl -sf --cacert /etc/synctuary/tls/server.crt \
 ### Next steps
 
 - See `../../PROTOCOL.md` for the wire spec
-- See `../../docs/android-ui-mockups.html` for the planned client UI
+- See `../../docs/android-ui-mockups.html` for the client UI design reference
 - See `../README.md` (`synctuary-server/README.md`) for build / lint / test commands

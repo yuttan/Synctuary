@@ -207,8 +207,8 @@ Unauthenticated. Used for discovery and capability negotiation.
 
 ```json
 {
-  "protocol_version": "0.2",
-  "server_version": "0.2.0",
+  "protocol_version": "0.3.2",
+  "server_version": "0.7.10",
   "server_id": "base64url-16bytes",
   "server_name": "Alice's Home Server",
   "encryption_mode": "standard",
@@ -508,32 +508,6 @@ Rename or move a file or directory.
 
 Moves MUST be atomic when source and destination are on the same volume; servers MAY fall back to copy-then-delete across volumes and SHOULD document this behavior.
 
-### 6.7 `GET /api/v1/files/thumbnail` (Optional)
-
-Returns a JPEG thumbnail for an image or video file. Video thumbnails require a frame extractor (e.g. `ffmpeg`); servers without one simply do not produce thumbnails for `video/*` sources.
-
-**Query parameters:**
-
-- `path` (required) — the source file path (§1 rules apply).
-- `share` (optional) — scopes the operation to a named share (§10). Defaults to the default share.
-- `size` (optional, default `256`) — the requested longest-side dimension in pixels. Servers clamp to an implementation maximum.
-- `t` (optional, default `0`) — a **non-negative** number of seconds selecting a video frame at an arbitrary timestamp (used for seek-preview / scrubbing thumbnails). Fractional values are permitted. Negative, `NaN`, or infinite values MUST be rejected with `400 bad_request`.
-  - When `t` is `0` or absent, the server returns its default thumbnail (for video, a frame near the start), which it MAY cache and serve from a persistent store.
-  - When `t > 0`, the request is **video-only**: a non-video `path` MUST be rejected with `400 unsupported_type`. The server extracts a frame at that timestamp and SHOULD NOT persist it in its thumbnail cache (arbitrary timestamps would bloat it); the client is expected to rely on HTTP caching instead, keyed by the request URL.
-
-**Response (200):**
-
-- `Content-Type: image/jpeg`
-- `Cache-Control: private, max-age=86400` — the URL (including any `t`) is the cache key.
-
-**Errors:**
-
-| HTTP | code | Meaning |
-|---|---|---|
-| 400 | `bad_request` | invalid `path`, `share`, or `t` |
-| 400 | `unsupported_type` | `path` does not support thumbnails (e.g. `t > 0` on a non-video, or an unsupported source type) |
-| 404 | `not_found` | `path` does not exist |
-
 ### 6.6 `GET /api/v1/files/transcode` (Optional)
 
 Streams a **live-transcoded** copy of a video file, re-encoded on the fly to a progressive fragmented-MP4 container (H.264 video / AAC audio). This exists so clients whose native decoders or extractors cannot play the source container/codec — for example AVI, FLV, WMV, or VOB, and MPEG-2/DivX/WMV-encoded streams generally — can still play the file without the server maintaining a persistent transcoded copy.
@@ -567,6 +541,32 @@ Transcoding begins as soon as the request is received and terminates when the cl
 | 503 | `transcoder_unavailable` | server has no transcoder (endpoint not supported on this deployment) |
 
 Note: because the response is streamed, an encoder failure that occurs **after** the first bytes have been delivered cannot change the already-committed `200` status; the server logs the failure and the stream simply ends. Clients SHOULD treat an unexpectedly short/truncated transcode stream as a playback error.
+
+### 6.7 `GET /api/v1/files/thumbnail` (Optional)
+
+Returns a JPEG thumbnail for an image or video file. Video thumbnails require a frame extractor (e.g. `ffmpeg`); servers without one simply do not produce thumbnails for `video/*` sources.
+
+**Query parameters:**
+
+- `path` (required) — the source file path (§1 rules apply).
+- `share` (optional) — scopes the operation to a named share (§10). Defaults to the default share.
+- `size` (optional, default `256`) — the requested longest-side dimension in pixels. Servers clamp to an implementation maximum.
+- `t` (optional, default `0`) — a **non-negative** number of seconds selecting a video frame at an arbitrary timestamp (used for seek-preview / scrubbing thumbnails). Fractional values are permitted. Negative, `NaN`, or infinite values MUST be rejected with `400 bad_request`.
+  - When `t` is `0` or absent, the server returns its default thumbnail (for video, a frame near the start), which it MAY cache and serve from a persistent store.
+  - When `t > 0`, the request is **video-only**: a non-video `path` MUST be rejected with `400 unsupported_type`. The server extracts a frame at that timestamp and SHOULD NOT persist it in its thumbnail cache (arbitrary timestamps would bloat it); the client is expected to rely on HTTP caching instead, keyed by the request URL.
+
+**Response (200):**
+
+- `Content-Type: image/jpeg`
+- `Cache-Control: private, max-age=86400` — the URL (including any `t`) is the cache key.
+
+**Errors:**
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `bad_request` | invalid `path`, `share`, or `t` |
+| 400 | `unsupported_type` | `path` does not support thumbnails (e.g. `t > 0` on a non-video, or an unsupported source type) |
+| 404 | `not_found` | `path` does not exist |
 
 ### 6.8 `GET /api/v1/files/mediainfo` (Optional)
 
@@ -1192,7 +1192,7 @@ Servers declare one of three transport profiles (exposed via `/info.transport_pr
 
 `dev-plaintext` replaces v0.1's `lan-only`. The rename is intentional: the previous name understated the risk of token theft on the local segment.
 
-### 10.1 Profile Pinning and Downgrade Detection
+### 12.1 Profile Pinning and Downgrade Detection
 
 Clients MUST persist the `transport_profile` value recorded at pairing time (from `GET /api/v1/info` performed during the pairing flow, §4.1) alongside the `server_fingerprint` and `device_token`.
 
@@ -1240,7 +1240,7 @@ In Private Mode:
 ## 15. Reference Implementations
 
 - Official server (Go, Apache-2.0): https://github.com/yuttan/Synctuary — `synctuary-server/`
-- Official Android client (Kotlin + Jetpack Compose, Apache-2.0): planned, see `synctuary-android/` (TBD)
+- Official Android client (Kotlin + Jetpack Compose, Apache-2.0): implemented, see `synctuary-android/`
 - Official iOS client (Swift + SwiftUI, Apache-2.0): planned (TBD)
 
 Third-party implementations SHOULD set a descriptive `Server:` (responses) or `User-Agent:` (requests) header identifying the implementation and version.
