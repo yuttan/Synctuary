@@ -21,6 +21,14 @@ import kotlinx.coroutines.launch
 
 enum class SortOption { NAME, DATE, SIZE }
 
+/** Transient state for a server-side archive extraction (§6.11). */
+sealed interface ExtractState {
+    data object Idle : ExtractState
+    data class Running(val archiveName: String) : ExtractState
+    data class Done(val folderName: String) : ExtractState
+    data class Failed(val message: String) : ExtractState
+}
+
 /** Comparator for natural sort: "file1, file2, ..., file9, file10" instead of lexicographic. */
 object NaturalOrderComparator : Comparator<String> {
     private val splitPattern = Regex("(\\d+)|(\\D+)")
@@ -245,6 +253,29 @@ class FileBrowserViewModel @JvmOverloads constructor(
             if (it.sortBy == option) it.copy(sortAscending = !it.sortAscending)
             else it.copy(sortBy = option, sortAscending = true)
         }
+    }
+
+    /** §6.11 — extract an archive server-side into a sibling directory. */
+    fun extractArchive(entry: FileEntry) {
+        val path = buildEntryPath(entry.name)
+        _uiState.update { it.copy(extractState = ExtractState.Running(entry.name)) }
+        viewModelScope.launch {
+            try {
+                val dest = repo.extractArchive(path, _currentShare.value?.id)
+                val folderName = dest.substringAfterLast('/')
+                // Reload so the freshly-created folder appears in the list.
+                loadDirectory(_uiState.value.currentPath)
+                _uiState.update { it.copy(extractState = ExtractState.Done(folderName)) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(extractState = ExtractState.Failed(e.message ?: "extract failed"))
+                }
+            }
+        }
+    }
+
+    fun dismissExtractState() {
+        _uiState.update { it.copy(extractState = ExtractState.Idle) }
     }
 
     fun moveFile(entry: FileEntry, destinationDir: String) {
@@ -477,6 +508,7 @@ data class FileBrowserUiState(
     val sortBy: SortOption = SortOption.NAME,
     val sortAscending: Boolean = true,
     val refreshing: Boolean = false,
+    val extractState: ExtractState = ExtractState.Idle,
 ) {
     val filteredEntries: List<FileEntry>
         get() {

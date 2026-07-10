@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +58,8 @@ fun FileActionSheet(
     onAddToFavorites: () -> Unit,
     onMove: () -> Unit,
     onDetails: () -> Unit,
+    // Non-null only for archive files (zip/rar/7z/cbz/cbr) → shows "Extract".
+    onExtract: (() -> Unit)? = null,
 ) {
     var showRenameDialog by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
@@ -102,6 +105,9 @@ fun FileActionSheet(
 
         SheetAction(Icons.Filled.Download, stringResource(R.string.action_download)) { onDownload() }
         SheetAction(Icons.Filled.SaveAlt, stringResource(R.string.action_save_as)) { onSaveAs() }
+        if (onExtract != null) {
+            SheetAction(Icons.Filled.Unarchive, stringResource(R.string.action_extract)) { onExtract() }
+        }
         SheetAction(Icons.Filled.StarOutline, stringResource(R.string.action_add_to_favorites)) { onAddToFavorites() }
         SheetAction(Icons.Filled.Edit, stringResource(R.string.action_rename)) { showRenameDialog = true }
         SheetAction(Icons.Filled.SwapHoriz, stringResource(R.string.action_move)) { onMove() }

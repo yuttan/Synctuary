@@ -64,7 +64,7 @@ import (
 // protocolVersion is the wire spec the server implements. It's a
 // hard property of the codebase (ABI), so it stays a const — never
 // override at link time.
-const protocolVersion = "0.3.1"
+const protocolVersion = "0.3.2"
 
 // serverVersion and commit are advertised via /api/v1/info and are
 // overridable at link time via:
@@ -221,6 +221,7 @@ func main() {
 	}
 	thumbSvc := usecase.NewThumbnailService(thumbRepo, storage, logger)
 	transcodeSvc := usecase.NewTranscodeService(storage, logger)
+	archiveSvc := usecase.NewArchiveService(storage, logger)
 	deviceSvc := usecaseDevice(deviceRepo)
 	favoriteSvc, err := usecase.NewFavoriteService(favoriteRepo, nil)
 	if err != nil {
@@ -411,6 +412,7 @@ func main() {
 		Files:            fileSvc,
 		Thumbnails:       thumbSvc,
 		Transcoder:       transcodeSvc,
+		Archives:         archiveSvc,
 		Devices:          deviceSvc,
 		Favorites:        favoriteSvc,
 		Shares:           shareSvc,
@@ -436,6 +438,7 @@ func main() {
 			"parallel_upload":  false,
 			"if_none_match":    false,
 			"transcode":        transcodeSvc.Available(),
+			"archive":          true,
 		},
 	})
 	if err != nil {
@@ -574,10 +577,20 @@ func newRouter(h *httpapi.Handler, ah *adminapi.Handler, logger *slog.Logger) ht
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(httpapi.RequestLogger(logger))
 
-	h.Register(r)
+	// middleware.Timeout is deliberately NOT applied globally. It cancels
+	// the request context after the deadline, which aborts long-running
+	// STREAMING responses mid-flight — file downloads, on-the-fly
+	// transcode playback, archive-entry streaming, multi-part chunk
+	// uploads, and synchronous archive extraction can all legitimately
+	// exceed 60s. Handler.Register applies this timeout only to the
+	// short, bounded API routes and leaves the streaming routes
+	// unwrapped. (Previously the 60s timeout wrapped everything and
+	// silently truncated large downloads / long transcodes.)
+	apiTimeout := middleware.Timeout(60 * time.Second)
+
+	h.Register(r, apiTimeout)
 	ah.Register(r)
 	return r
 }

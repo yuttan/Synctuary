@@ -1,6 +1,9 @@
 package io.synctuary.android.data.api
 
 import io.synctuary.android.data.api.dto.AddFavoriteItemRequest
+import io.synctuary.android.data.api.dto.ArchiveExtractRequest
+import io.synctuary.android.data.api.dto.ArchiveExtractResponse
+import io.synctuary.android.data.api.dto.ArchiveListResponse
 import io.synctuary.android.data.api.dto.DevicesResponse
 import io.synctuary.android.data.api.dto.CreateFavoriteRequest
 import io.synctuary.android.data.api.dto.FavoriteItemDto
@@ -69,6 +72,19 @@ interface SynctuaryApi {
 
     @POST("api/v1/files/move")
     suspend fun filesMove(@Body body: MoveRequest, @Query("share") share: String? = null): Response<Unit>
+
+    // ── Archive browsing (§6.9-§6.11) — require Bearer auth ──────────
+    // Note: archive/content is consumed as a URL by Coil/ExoPlayer, not
+    // Retrofit, so only list + extract are declared here.
+
+    @GET("api/v1/files/archive")
+    suspend fun archiveList(
+        @Query("path") path: String,
+        @Query("share") share: String? = null,
+    ): ArchiveListResponse
+
+    @POST("api/v1/files/archive/extract")
+    suspend fun archiveExtract(@Body body: ArchiveExtractRequest): ArchiveExtractResponse
 
     @POST("api/v1/files/upload/init")
     suspend fun uploadInit(@Body body: UploadInitRequest, @Query("share") share: String? = null): UploadInitResponse

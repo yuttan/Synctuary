@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/crypto/hkdf"
 
 	icrypto "github.com/synctuary/synctuary-server/internal/adapter/infrastructure/crypto"
@@ -199,7 +200,7 @@ func newTestEnv(t *testing.T, opts ...testEnvOpts) *testEnv {
 	}
 
 	router := chi.NewRouter()
-	handler.Register(router)
+	handler.Register(router, middleware.Timeout(60*time.Second))
 	httpSrv := httptest.NewServer(router)
 
 	return &testEnv{

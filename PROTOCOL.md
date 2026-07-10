@@ -1,11 +1,13 @@
 # Synctuary Protocol Specification
 
-**Version**: 0.3.1
-**Date**: 2026-07-07
+**Version**: 0.3.2
+**Date**: 2026-07-09
 **Status**: Final
 **License**: CC-BY-4.0
 
 This document defines the wire protocol between Synctuary clients and servers. Third-party implementations of clients or servers conforming to this specification are welcome.
+
+**Changes from v0.3.1 Final**: Added §6.9 Archive List (`GET /api/v1/files/archive`), §6.10 Archive Content (`GET /api/v1/files/archive/content`), and §6.11 Archive Extract (`POST /api/v1/files/archive/extract`) — an OPTIONAL, capability-gated family that lets clients browse the contents of a zip / rar / 7z (and the `.cbz` / `.cbr` comic-book variants) container, stream a single inner entry without extracting the whole archive (the comic-reader use case pages through image entries by swipe), and extract all entries server-side into a sibling directory. Added the `archive` capability flag. No wire-incompatible changes; clients that do not implement these features are fully compatible with a server that advertises them.
 
 **Changes from v0.3.0 Final**: Added §6.6 Transcode (`GET /api/v1/files/transcode`) — an OPTIONAL, capability-gated endpoint that re-encodes legacy video formats to a streamable fragmented-MP4 (H.264/AAC) so clients whose native decoders cannot play the source container/codec can still play it. Added the `transcode` capability flag. Documented §6.7 Thumbnail (`GET /api/v1/files/thumbnail`) and added its OPTIONAL `t` query parameter — a non-negative number of seconds selecting a video frame at an arbitrary timestamp for seek-preview / scrubbing thumbnails; `t > 0` is video-only and served uncached server-side. Added §6.8 MediaInfo (`GET /api/v1/files/mediainfo`) — an OPTIONAL endpoint (sharing the `transcode` capability flag) that returns a video's duration and dimensions via a metadata probe, so clients can enable the seek bar during transcode playback where the source duration is otherwise unavailable in-band. No wire-incompatible changes; clients that do not implement these features are fully compatible with a server that advertises them.
 
@@ -221,7 +223,8 @@ Unauthenticated. Used for discovery and capability negotiation.
     "if_none_match": false,
     "shares": true,
     "pins": true,
-    "transcode": true
+    "transcode": true,
+    "archive": true
   }
 }
 ```
@@ -231,6 +234,7 @@ Unauthenticated. Used for discovery and capability negotiation.
 - `tls_fingerprint` is the SHA-256 of the server's TLS leaf certificate (DER-encoded), lowercase hex. Omitted when `transport_profile == "dev-plaintext"`.
 - `capabilities` contains boolean flags only. Capability names are additive-only across versions; removal of a capability requires a major version bump (`/api/v2/…`).
 - `transcode` (added v0.3.1) advertises support for the OPTIONAL on-the-fly video transcode endpoint (§6.6). A server that lacks a transcoder MUST advertise `"transcode": false`.
+- `archive` (added v0.3.2) advertises support for the OPTIONAL archive browsing / streaming / extraction family (§6.9–§6.11). A server that does not implement it MUST advertise `"archive": false`.
 
 ## 6. File Operations (Standard Mode)
 
@@ -599,6 +603,111 @@ This endpoint is **OPTIONAL** and shares the `transcode` capability flag (§5) w
 | 400 | `unsupported_type` | `path` is not a video file |
 | 404 | `not_found` | `path` does not exist |
 | 503 | `transcoder_unavailable` | server has no probe (`ffprobe` not available) |
+
+### 6.9 `GET /api/v1/files/archive` (Optional)
+
+Lists the members of an archive file (a `.zip` / `.cbz`, `.rar` / `.cbr`, or `.7z` container) without extracting it. The listing is **flat**: every member is returned with its full archive-internal path, and the client reconstructs the directory tree by splitting each path on `/`. This backs an in-app archive browser and, together with §6.10, the comic-reader use case (paging through image entries by swipe).
+
+This endpoint is **OPTIONAL**. Availability is advertised by the `archive` capability flag in `GET /api/v1/info` (§5). Servers without archive support advertise `"archive": false`.
+
+**Query parameters:**
+
+- `path` (required) — the archive file's path (§1 rules apply).
+- `share` (optional) — scopes the operation to a named share (§10). Defaults to the default share.
+
+**Response (200):**
+
+```json
+{
+  "entries": [
+    { "path": "chapter1/001.jpg", "size": 84213, "dir": false },
+    { "path": "chapter1", "dir": true }
+  ]
+}
+```
+
+- `path` — the archive-internal path of the member, always forward-slash separated, cleaned, with no leading slash. Backslash separators (some Windows-authored archives) are normalized to `/`.
+- `size` — the member's uncompressed size in bytes. Omitted for directory entries and for formats that do not report it.
+- `dir` — `true` for directory members.
+
+Servers cap the number of entries they will enumerate (the reference implementation caps at 10 000) and reject archives beyond that with `400 archive_too_large`, protecting the client from an unbounded listing.
+
+**Errors:**
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `bad_request` | invalid `path` or `share` |
+| 400 | `unsupported_type` | `path` is not a supported archive |
+| 400 | `archive_unreadable` | archive is corrupt or password-protected |
+| 400 | `archive_too_large` | archive declares more members than the server will list |
+| 404 | `not_found` | `path` does not exist |
+
+### 6.10 `GET /api/v1/files/archive/content` (Optional)
+
+Streams a **single entry** out of an archive without extracting the whole container. The `Content-Type` is derived from the **entry's** extension (not the container's), so an image or video entry is served with a directly-playable media type. This is what lets a client page through all image entries of a comic archive, or play a video/audio entry inline.
+
+This endpoint is **OPTIONAL** and shares the `archive` capability flag (§5) with §6.9.
+
+**Query parameters:**
+
+- `path` (required) — the archive file's path (§1 rules apply).
+- `entry` (required) — the archive-internal path of the member to stream, as returned in §6.9 `entries[].path`.
+- `share` (optional) — scopes the operation to a named share (§10). Defaults to the default share.
+
+**Response (200):**
+
+- `Content-Type` — derived from the entry's extension; `application/octet-stream` when unknown.
+- `Content-Length` — present when the entry's uncompressed size is known.
+- `Cache-Control: private, max-age=86400` — the URL (archive `path` + `entry`) is a stable cache key.
+
+The response is a plain byte stream of the entry's decompressed content. `Range` is not supported (the body is served whole).
+
+**Errors:**
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `bad_request` | invalid `path`, missing `entry`, or invalid `share` |
+| 400 | `unsupported_type` | `path` is not a supported archive |
+| 400 | `archive_unreadable` | archive is corrupt or password-protected |
+| 404 | `not_found` | `path` does not exist |
+| 404 | `entry_not_found` | `entry` does not exist within the archive (or is a directory) |
+
+### 6.11 `POST /api/v1/files/archive/extract` (Optional)
+
+Extracts **all** entries of an archive into a new sibling directory named after the archive stem (`/foo/bar.zip` → `/foo/bar/`). When that directory already exists, a numeric suffix is appended (`/foo/bar (2)`, `/foo/bar (3)`, …). Extraction is **synchronous**: the response is returned only after all entries are written.
+
+This endpoint is **OPTIONAL** and shares the `archive` capability flag (§5) with §6.9.
+
+**Request body (JSON):**
+
+```json
+{
+  "path": "/comics/vol1.zip",
+  "share": "base64url-16bytes"
+}
+```
+
+- `path` (required) — the archive file's path (§1 rules apply).
+- `share` (optional) — scopes the operation to a named share (§10). Provided in the **request body** (not the query string) for this endpoint. Defaults to the default share.
+
+**Response (200):**
+
+```json
+{ "dest": "/comics/vol1" }
+```
+
+- `dest` — the user-facing path of the created directory.
+
+Servers MUST protect against directory-traversal / "Zip-Slip": every entry MUST resolve strictly inside the destination directory. Entries with absolute paths, Windows drive letters, or `..` components that would escape the destination are refused and never written outside it.
+
+**Errors:**
+
+| HTTP | code | Meaning |
+|---|---|---|
+| 400 | `bad_request` | invalid `path` or `share` |
+| 400 | `unsupported_type` | `path` is not a supported archive |
+| 400 | `archive_unreadable` | archive is corrupt or password-protected |
+| 404 | `not_found` | `path` does not exist |
 
 ## 7. Device Management
 

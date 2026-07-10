@@ -80,6 +80,7 @@ import io.synctuary.android.R
 import io.synctuary.android.data.TransferState
 import io.synctuary.android.data.api.dto.FileEntry
 import io.synctuary.android.data.api.dto.ShareEntry
+import io.synctuary.android.ui.archive.isArchiveMime
 import io.synctuary.android.ui.preview.PreviewViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -151,6 +152,19 @@ fun FileBrowserScreen(
             is TransferState.Failed -> {
                 snackbarHostState.showSnackbar(context.getString(R.string.files_upload_failed, us.message))
                 viewModel.dismissTransferFeedback()
+            }
+            else -> {}
+        }
+    }
+    LaunchedEffect(state.extractState) {
+        when (val es = state.extractState) {
+            is ExtractState.Done -> {
+                snackbarHostState.showSnackbar(context.getString(R.string.archive_extract_success, es.folderName))
+                viewModel.dismissExtractState()
+            }
+            is ExtractState.Failed -> {
+                snackbarHostState.showSnackbar(context.getString(R.string.archive_extract_failed, es.message))
+                viewModel.dismissExtractState()
             }
             else -> {}
         }
@@ -375,6 +389,12 @@ fun FileBrowserScreen(
                     detailsEntry = entry
                     viewModel.selectForAction(null)
                 },
+                onExtract = if (isArchiveMime(entry.mime_type)) {
+                    {
+                        viewModel.extractArchive(entry)
+                        viewModel.selectForAction(null)
+                    }
+                } else null,
             )
         }
 

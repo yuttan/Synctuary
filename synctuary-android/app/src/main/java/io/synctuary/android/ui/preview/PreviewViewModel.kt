@@ -16,7 +16,23 @@ class PreviewViewModel(application: Application) : AndroidViewModel(application)
     var imagePaths: List<String> = emptyList()
         private set
 
+    // When non-null, contentUrl() resolves entries via the archive-content
+    // endpoint (§6.10) with this archive as `path` and the image path as
+    // `entry`. Normal (non-archive) browsing clears it via setImageList.
+    var archivePath: String? = null
+        private set
+
     fun setImageList(paths: List<String>) {
+        imagePaths = paths
+        archivePath = null
+    }
+
+    /**
+     * Configure the pager to page through image ENTRIES of an archive
+     * (comic-reader mode). [paths] are archive-internal entry paths.
+     */
+    fun setArchiveImageList(archivePath: String, paths: List<String>) {
+        this.archivePath = archivePath
         imagePaths = paths
     }
 
@@ -79,6 +95,11 @@ class PreviewViewModel(application: Application) : AndroidViewModel(application)
 
     fun contentUrl(remotePath: String): String {
         val shareParam = currentShareId?.let { "&share=${Uri.encode(it)}" } ?: ""
+        archivePath?.let { archive ->
+            // remotePath is an archive-internal entry path (§6.10).
+            return "${baseUrl()}/api/v1/files/archive/content" +
+                "?path=${Uri.encode(archive)}&entry=${Uri.encode(remotePath)}$shareParam"
+        }
         return "${baseUrl()}/api/v1/files/content?path=${Uri.encode(remotePath)}$shareParam"
     }
 

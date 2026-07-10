@@ -461,6 +461,8 @@ var extraMimeTypes = map[string]string{
 	".zip": "application/zip",
 	".rar": "application/vnd.rar",
 	".7z":  "application/x-7z-compressed",
+	".cbz": "application/vnd.comicbook+zip",
+	".cbr": "application/vnd.comicbook-rar",
 	".tar": "application/x-tar",
 	".gz":  "application/gzip",
 	".bz2": "application/x-bzip2",
@@ -479,6 +481,12 @@ var extraMimeTypes = map[string]string{
 	".yml":  "text/yaml",
 	".toml": "application/toml",
 }
+
+// DetectMime is the exported form of detectMime, used by handlers that
+// need to resolve a MIME type from a filename outside the storage layer
+// (e.g. streaming an archive entry, whose type derives from the ENTRY's
+// extension rather than the container's).
+func DetectMime(name string) string { return detectMime(name) }
 
 // detectMime resolves MIME type by extension: first from our curated
 // map (ensures correct types for media files regardless of OS), then

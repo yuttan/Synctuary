@@ -38,7 +38,7 @@ type ServerConfig struct {
 	TLSCertPath     string        `koanf:"tls_cert_path"`    // PEM cert; empty → dev-plaintext
 	TLSKeyPath      string        `koanf:"tls_key_path"`     // PEM key;  empty → dev-plaintext
 	ReadTimeout     time.Duration `koanf:"read_timeout"`     // default 30s
-	WriteTimeout    time.Duration `koanf:"write_timeout"`    // default 5m  (large chunk uploads)
+	WriteTimeout    time.Duration `koanf:"write_timeout"`    // default 0 (disabled) — see Defaults()
 	ShutdownTimeout time.Duration `koanf:"shutdown_timeout"` // graceful drain on SIGTERM
 }
 
@@ -112,12 +112,23 @@ type IPv6Config struct {
 func Defaults() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Addr:            ":8443",
-			Name:            "Synctuary",
-			TLSCertPath:     "./data/tls/server.crt",
-			TLSKeyPath:      "./data/tls/server.key",
-			ReadTimeout:     30 * time.Second,
-			WriteTimeout:    5 * time.Minute,
+			Addr:        ":8443",
+			Name:        "Synctuary",
+			TLSCertPath: "./data/tls/server.crt",
+			TLSKeyPath:  "./data/tls/server.key",
+			ReadTimeout: 30 * time.Second,
+			// WriteTimeout is DISABLED (0) by design. http.Server's
+			// WriteTimeout is an absolute deadline on the whole response
+			// write, so any non-zero value silently kills long-running
+			// STREAMING responses: multi-GB range downloads, on-the-fly
+			// transcode playback (which streams for the video's full
+			// duration), archive-entry streaming, and large chunk
+			// uploads. There is no per-request override, so a global cap
+			// that is safe for those is effectively unbounded anyway.
+			// Client disconnect is handled via request-context
+			// cancellation instead; bounded API routes get an explicit
+			// 60s timeout middleware in the router.
+			WriteTimeout:    0,
 			ShutdownTimeout: 30 * time.Second,
 		},
 		Storage: StorageConfig{

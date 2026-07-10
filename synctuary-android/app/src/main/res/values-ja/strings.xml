@@ -193,4 +193,14 @@
     <!-- Media preview: jump to time -->
     <string name="player_jump_title">時間指定ジャンプ</string>
     <string name="player_jump_invalid">時間の形式が不正です（hh:mm:ss）</string>
+
+    <!-- Archive browsing / extraction -->
+    <string name="action_extract">解凍</string>
+    <string name="archive_extract_success">解凍しました: %1$s</string>
+    <string name="archive_extract_failed">解凍に失敗しました: %1$s</string>
+    <string name="archive_preview_unsupported">プレビューに対応していません</string>
+    <string name="archive_empty">このアーカイブは空です</string>
+    <string name="archive_root">アーカイブ</string>
+    <string name="archive_folder">フォルダ</string>
+    <string name="archive_back">戻る</string>
 </resources>

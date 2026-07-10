@@ -94,8 +94,10 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // Paths are share-relative: the same "/movies/a.avi" can exist in two
-    // shares, so the persistence key includes the share id.
-    private fun resumeKey(path: String) = "${currentShareId ?: "default"}|$path"
+    // shares, so the persistence key includes the share id. Archive entries
+    // add the archive path so the same entry name in two archives is distinct.
+    private fun resumeKey(path: String) =
+        "${currentShareId ?: "default"}|${archivePath ?: ""}|$path"
 
     private fun loadResumePosition(path: String): Long {
         val key = resumeKey(path)
@@ -279,7 +281,10 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 // unplayable, transparently fall back to server transcode —
                 // starting at the saved resume position, since the direct
                 // attempt's pre-prepare resume seek died with the player.
-                if (!transcode && isTranscodableError(error)) {
+                // Archive entries have no transcode counterpart (the server
+                // transcoder operates on real files, not in-archive entries),
+                // so surface the error rather than attempting a fallback.
+                if (!transcode && archivePath == null && isTranscodableError(error)) {
                     startTranscodeFallback(path, loadResumePosition(path) / 1000L)
                     return
                 }
@@ -577,11 +582,20 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     var currentShareId: String? = null
 
+    // When non-null, playback targets an ENTRY inside this archive via the
+    // archive-content endpoint (§6.10). Transcode fallback is disabled for
+    // archive entries (the transcoder operates on real files, not entries).
+    var archivePath: String? = null
+
     fun contentUrl(remotePath: String): String {
         val paired = secretStore.loadPairedDevice()
             ?: throw IllegalStateException("not paired")
         val base = paired.serverUrl.trimEnd('/')
         val shareParam = currentShareId?.let { "&share=${android.net.Uri.encode(it)}" } ?: ""
+        archivePath?.let { archive ->
+            return "$base/api/v1/files/archive/content" +
+                "?path=${android.net.Uri.encode(archive)}&entry=${android.net.Uri.encode(remotePath)}$shareParam"
+        }
         return "$base/api/v1/files/content?path=${android.net.Uri.encode(remotePath)}$shareParam"
     }
 
