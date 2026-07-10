@@ -4,7 +4,7 @@
 > not to break" briefing for any new Claude Code session picking up the
 > Synctuary project. Update it in lock-step with the architecture.
 
-**Last updated**: 2026-05-18 (after v0.7.1 — TLS auto-gen, seed phrase UI, upload share-scope fix, Windows installer, streaming improvements)
+**Last updated**: 2026-07-10 (after v0.7.10 / PR #52 — archive browsing (zip/rar/7z), in-archive comic-reader image viewer, server-side extraction, and streaming-timeout fixes. Also covers #47-#51: TLS auto-gen + seed phrase UI + Windows installer, image pinch-zoom, ffmpeg transcode streaming, bundled ffmpeg installer component, and player scrub/resume UX)
 **Repo**: https://github.com/yuttan/Synctuary (public, Apache-2.0)
 
 ---
@@ -19,8 +19,8 @@ to be implementable by third parties.
 Read in order to onboard:
 
 1. [`SPEC.md`](./SPEC.md) — vision, components, license decisions, roadmap
-2. [`PROTOCOL.md`](./PROTOCOL.md) — wire spec v0.3.0 (§1-§11, shares + pins)
-3. [`arch_saya_go_server_v3.md`](./arch_saya_go_server_v3.md) — server-side architecture
+2. [`PROTOCOL.md`](./PROTOCOL.md) — wire spec v0.3.2 (§1-§15: shares, pins, transcode, thumbnails, archive)
+3. [`arch_saya_go_server_v3.md`](./arch_saya_go_server_v3.md) — server-side architecture (predates shares/thumbnails/transcode/archive, but still the most current design doc — see §2)
 4. [`docs/android-ui-mockups.html`](./docs/android-ui-mockups.html) — 14 screens of Material 3 dark mockups
 5. [`README.md`](./README.md) — quick start + contributor flow
 
@@ -34,8 +34,7 @@ Synctuary/
 ├── CLAUDE.md                          ← this file
 ├── LICENSE                            ← Apache-2.0
 │
-├── arch_*.md                          ← historical design drafts (v1, v2, v3)
-├── review_*.md                        ← historical code reviews
+├── arch_saya_go_server_v3.md          ← latest server-side architecture draft (v0.2.2-era, pre-shares/thumbnails/transcode/archive — still the best available design doc)
 │
 ├── .github/
 │   ├── branch-protection.json         ← ruleset definition (audit + re-apply source)
@@ -45,7 +44,10 @@ Synctuary/
 │       └── release.yml                ← GHCR publish (tags) + multi-arch validation (PRs)
 │
 ├── docs/
-│   └── android-ui-mockups.html        ← UI design source of truth (14 screens)
+│   ├── android-ui-mockups.html        ← UI design source of truth (14 screens)
+│   ├── remote-access.md               ← IPv6 direct / WireGuard VPN user guide (English)
+│   ├── remote-access-jp.md            ← same guide, Japanese
+│   └── history/                       ← superseded arch drafts (v1, v2) + one-shot AI reviews from the PROTOCOL v0.2.x era; see docs/history/README.md
 │
 ├── synctuary-server/                  ← Go server, Apache-2.0
 │   ├── Dockerfile                     ← multi-stage, distroless static
@@ -60,10 +62,11 @@ Synctuary/
 │   │   ├── docker-compose.yml
 │   │   ├── config.example.yml
 │   │   ├── synctuary.service          ← systemd unit (full hardening)
-│   │   ├── tls/README.md              ← self-signed cert generation (manual)
+│   │   ├── tls/README.md              ← manual cert generation (custom SANs / Let's Encrypt; auto-gen covers the common case)
 │   │   └── windows/                   ← Windows installer (Inno Setup)
 │   │       ├── synctuary.iss          ← Inno Setup script
-│   │       └── config.yml             ← Windows default config (TLS auto-gen enabled)
+│   │       ├── config.yml             ← Windows default config (TLS auto-gen enabled)
+│   │       └── fetch-ffmpeg.ps1       ← downloads a static ffmpeg for the optional installer component
 │   └── internal/
 │       ├── domain/                    ← entities + interfaces (no impl deps)
 │       │   ├── device/, file/, nonce/, rate/, secret/, favorite/
@@ -74,10 +77,15 @@ Synctuary/
 │       │   ├── share_service.go       ← multi-drive share CRUD
 │       │   ├── pin_service.go         ← per-device quick access pins
 │       │   ├── thumbnail_service.go   ← on-demand JPEG thumbnail generation + cache
+│       │   ├── transcode_service.go   ← live ffmpeg transcode streaming (§6.6)
+│       │   ├── probe_service.go       ← ffprobe mediainfo (§6.8)
+│       │   ├── media_tools.go         ← ffmpeg/ffprobe resolution (bundled-first, see §3.21)
+│       │   ├── archive_service.go     ← zip/rar/7z listing, entry streaming, extraction (§6.9-§6.11)
 │       │   └── admin_service.go       ← admin auth (bcrypt + session tokens)
 │       ├── adapter/
 │       │   ├── infrastructure/        ← impl: db (SQLite/modernc), fs, crypto, rate, secret, wg
 │       │   └── interface/http/        ← chi router + handlers + middleware
+│       │       ├── archive.go         ← §6.9-§6.11 archive endpoint handlers
 │       │       └── admin/             ← admin Web UI (Preact/Vite/Tailwind, go:embed)
 │       ├── migrations/                ← goose SQL: 001-008 (init, uploads, favorites, shares, pins, wg_peers, thumbnails, upload_root_path)
 │       └── integration/               ← end-to-end tests booting httptest.Server
@@ -116,8 +124,9 @@ Synctuary/
             │   │   └── ui/
             │   │       ├── navigation/              ← NavRoutes + BottomNavBar
             │   │       ├── onboarding/              ← screens 1-3 + QrScannerScreen + OnboardingViewModel
-            │   │       ├── files/                   ← FileBrowser + ActionSheet + Move/Details dialogs + ViewModel
-            │   │       ├── preview/                 ← ImagePreview + MediaPreview + VideoPlayerViewModel (A-B loop, frame step)
+            │   │       ├── files/                   ← FileBrowser + ActionSheet + Move/Details dialogs + ViewModel (pull-to-refresh)
+            │   │       ├── archive/                 ← ArchiveBrowserScreen + ArchiveBrowserViewModel + ArchiveTree (client-side flat→tree builder)
+            │   │       ├── preview/                 ← ImagePreview (pinch-zoom, FIT/FILL/1:1) + MediaPreview + PreviewViewModel + VideoPlayerViewModel (A-B loop, frame step, transcode fallback, jump-to-time, resume)
             │   │       ├── favorites/               ← FavoritesScreen + ListDetail + AddToFavorites + BiometricHelper
             │   │       ├── devices/                 ← DevicesScreen + ViewModel (screen 6)
             │   │       ├── settings/                ← SettingsScreen + ViewModel (screen 7)
@@ -168,6 +177,14 @@ Synctuary/
 17. **Seed phrase display in admin UI**: on first launch, `loadOrInitMasterKey` returns the BIP-39 mnemonic alongside the derived key. The mnemonic is passed to the admin handler and held in memory only (never persisted to DB). The admin UI shows it after the initial password setup, with an acknowledge button that clears it from memory. After server restart, it's gone permanently. This replaces the stderr-only display which Windows double-click users would miss.
 
 18. **Upload share-scope persistence** (migration 008): `uploads` table has a `root_path` column so `AppendChunk` can resolve the correct share storage for final rename. Fixes uploads from non-default shares landing in the wrong directory. The `ForRoot(root)` method on `UploadSession` creates a scoped instance; `FileService.WithStorage(storage, root)` now scopes both the storage and the upload session.
+
+19. **Server-side transcode streaming** (`PROTOCOL §6.6`, `transcode_service.go`): legacy formats a client's native decoder can't handle (AVI/FLV/WMV/VOB) are re-encoded on the fly to a fragmented MP4 (`frag_keyframe+empty_moov`, H.264/AAC) and piped straight to the response — no persistent transcoded copy is ever written to disk. The stream is **not** HTTP-Range-seekable; seeking is "seek-by-restart": the client re-requests the endpoint with a new `start=<seconds>` offset and the server starts a fresh `ffmpeg` process at that timestamp. Gated by the `transcode` capability flag (§5); servers without `ffmpeg` advertise `false` and 503 the endpoint. `probe_service.go` (§6.8, `ffprobe`) supplies duration/dimensions out-of-band since the fMP4 stream doesn't carry a duration header.
+
+20. **Archive endpoint family** (`PROTOCOL §6.9-§6.11`, `archive_service.go` + `adapter/interface/http/archive.go`): list / stream-one-entry / extract for `.zip`/`.rar`/`.7z` (+ `.cbz`/`.cbr`) using pure-Go readers (`archive/zip`, `nwaples/rardecode/v2`, `bodgit/sevenzip`) to keep the distroless static image. Entry streaming (§6.10) backs the Android comic-reader use case — paging through image entries without extracting. Extraction (§6.11) is validated against **Zip-Slip**: any entry path that resolves outside the destination directory (absolute paths, drive letters, `..` traversal) is skipped, never written. Gated by the `archive` capability flag.
+
+21. **Media tool resolution order** (`media_tools.go`): `ffmpeg`/`ffprobe` are resolved at startup in this order, first hit wins: (1) `<exe-dir>/ffmpeg/ffmpeg.exe` — the Windows installer's bundled copy, (2) `<exe-dir>/ffmpeg.exe` — a binary dropped loose beside the server exe, (3) system `PATH`. Bundled-first is deliberate: a packaged deployment's behavior shouldn't silently change because of whatever happens to be on `PATH`.
+
+22. **Streaming routes are exempt from the API timeout, and `WriteTimeout` is disabled** (`handler.go:Register`, `pkg/config/config.go`): the chi router applies a 60s `middleware.Timeout` only to short, bounded routes (listing, favorites, pins, move, thumbnail, mediainfo, archive listing). File content, transcode, archive-entry streaming, and chunk upload are registered **without** it — those can legitimately run far longer than 60s (multi-GB downloads, full-length transcode playback). Separately, `http.Server.WriteTimeout` is an **absolute** deadline on the whole response write regardless of activity, so it defaults to `0` (disabled) rather than any finite value; a `WriteTimeout` of 5 minutes previously capped every streaming response at 5 minutes total, killing long video playback and large downloads mid-stream. Client disconnects are handled via request-context cancellation instead.
 
 ## 4. Local development environment (Windows file-server, 2026-05-14)
 
@@ -387,6 +404,93 @@ Fix: wrap the PNG payload in an ICO container (6-byte ICONDIR header +
 If you ever regenerate the tray icon code, ALWAYS produce ICO format.
 Do NOT pass PNG/BMP/JPEG to `systray.SetIcon()` on Windows.
 
+### 6.16 `detectTransformGestures` steals single-finger drags from the parent pager (Android, 2026-07-07)
+
+Compose's `detectTransformGestures` consumes single-finger drags, not just
+multi-finger pinches. Wiring it onto the image preview inside a
+`HorizontalPager` (for swipe-between-images) starved the pager of the
+gesture: every drag was eaten by the transform detector before the pager
+ever saw it, so swiping between images stopped working entirely once zoom
+support was added.
+
+Fix: hand-roll the gesture loop with `awaitEachGesture` / `awaitPointerEvent`
+and only start consuming when the gesture is genuinely "ours" — two or more
+pointers down, or already zoomed in. A single finger at scale 1 consumes
+nothing, so the parent pager still receives the swipe. See
+`ImagePreviewScreen.kt`.
+
+### 6.17 Consuming tap-jitter cancels `detectTapGestures` (Android, 2026-07-07)
+
+A real tap always jitters a few pixels before release. If the custom
+transform gesture loop (see 6.16) starts consuming pointer moves immediately
+while zoomed, it swallows that jitter — and a sibling `detectTapGestures` in
+the same `pointerInput` chain gets cancelled before `onTap`/`onDoubleTap` can
+fire. Result: tap-to-toggle-overlay and double-tap-to-zoom stop working
+while an image is zoomed in.
+
+Fix: gate the transform loop's "start consuming" decision on
+`viewConfiguration.touchSlop` — accumulate pan distance and only flip to
+"consuming" once it exceeds the platform's own tap-vs-drag threshold. A
+second pointer (pinch) still starts consuming immediately.
+
+### 6.18 Fixed dp heights get clamped by parent constraints in Compose (Android, 2026-07-09)
+
+A 180dp-tall seek-preview thumbnail bubble, positioned via `.offset()` above
+a 48dp-high slider row `Box`, was rendered squashed to 48dp on a real device
+— the bubble inherited the row's incoming max-height *constraint*, not just
+its layout position, because `.offset()` doesn't change the constraints
+passed to the child. The 180dp `Modifier.height()` on the bubble was
+therefore clamped, not honored.
+
+Fix: wrap the bubble in `Modifier.wrapContentSize(align = ..., unbounded =
+true)`, which measures the content at its true intrinsic size instead of
+the parent's incoming constraints, then position the whole thing with
+`.offset()`. See `MediaPreviewScreen.kt`.
+
+### 6.19 Coil `Size.ORIGINAL` decodes full resolution — can OOM on camera photos (Android, 2026-07-07)
+
+Requesting `Size.ORIGINAL` for 1:1 pixel-accurate zoom display sounds
+correct, but Coil then decodes the source at its full resolution with no
+downsampling. A modern phone camera photo (48MP+) decodes to roughly
+190MB as an uncompressed bitmap — comfortably past typical GPU texture
+size limits and a fast route to `OutOfMemoryError` / a black frame.
+
+Fix: cap the Coil request `.size()` at a fixed pixel ceiling
+(`MAX_BITMAP_DIM = 4096` in `ImagePreviewScreen.kt`) instead of
+`Size.ORIGINAL`. 4096px is enough headroom for 1:1 display at any
+realistic viewport while staying well under GPU texture limits.
+
+### 6.20 chi `middleware.Timeout` cancels streaming responses mid-flight (Server, 2026-07-10)
+
+`middleware.Timeout(60*time.Second)` was applied to every route in the
+router, including file content download, transcode playback, and archive
+extraction. Any of those running past 60 seconds — a multi-GB download, a
+feature-length transcode, extracting a large archive — got its request
+context cancelled and the response cut off mid-stream, even though nothing
+was actually stuck.
+
+Fix: apply the timeout middleware only to a `r.Group` of short, bounded
+routes (listing, favorites, pins, move, thumbnail, mediainfo, archive
+listing). Streaming/long-running routes (file content, transcode,
+archive-entry streaming, chunk upload, archive extraction) are registered
+in a separate group with no per-request timeout; client disconnects are
+still handled via request-context cancellation. See `handler.go:Register`.
+
+### 6.21 `http.Server.WriteTimeout` is an absolute whole-response deadline, not an idle timeout (Server, 2026-07-10)
+
+The default config set `WriteTimeout: 5 * time.Minute`, which reads like a
+reasonable "give up if nothing happens for 5 minutes" safeguard. It is not:
+Go's `net/http` `WriteTimeout` is an absolute deadline measured from when
+the request headers finish being read, covering the **entire** response
+write regardless of how much progress is being made. Any streaming response
+— a large download, a full-length transcode — that legitimately takes
+longer than 5 minutes gets killed at exactly 5 minutes even while actively
+sending bytes.
+
+Fix: default `WriteTimeout` to `0` (disabled) — see the rationale comment
+in `pkg/config/config.go`. Client-side stalls are caught by request-context
+cancellation on disconnect instead, not a server-side wall clock.
+
 ## 7. Phase status (what's done, what's next)
 
 ### Done (v0.6 = 2026-05-08)
@@ -443,12 +547,32 @@ Do NOT pass PNG/BMP/JPEG to `systray.SetIcon()` on Windows.
 - ✅ Server: download `Content-Disposition` header for proper filename handling (PR #45)
 - ✅ Server: periodic `Flush` during large downloads (256KiB intervals) for mobile progress (PR #45)
 - ✅ Server: default chunk size reduced 8MiB -> 2MiB for mobile-friendly uploads (PR #45)
+- ✅ Android: download resume via `Range` header (206 partial content) (PR #45)
+- ✅ Android: transfer progress banner — speed (MB/s), byte progress, estimated time remaining (PR #45)
+- ✅ Documentation: README.md updated to v0.7 status (PR #46)
+
+### Done (v0.7.5 = 2026-07-07, PR #47)
 - ✅ Server: TLS auto-generation — `pkg/tlsgen` generates ECDSA P-256 self-signed cert on first run with all LAN IPs as SANs; default config enables TLS out-of-the-box
 - ✅ Server: seed phrase display in admin UI — shown after initial setup, held in memory only, cleared on acknowledge
 - ✅ Server: admin API — `GET /admin/api/seed-phrase` + `POST /admin/api/seed-phrase/acknowledge`
 - ✅ Admin UI: seed phrase page (24-word grid, yellow warning banner, acknowledge button, ja/en i18n)
+- ✅ Server: IPv6 admin-mode crash fixed — graceful fallback instead of crashing when IPv6 remote access is toggled
 - ✅ Windows installer — Inno Setup script (`deploy/windows/`), per-user install, auto TLS, Start Menu shortcuts, firewall rule option
-- ✅ Documentation: README.md updated to v0.7 status (PR #46)
+- ✅ Android: QR code scan to add a remote URL from Settings (skips manual URL entry)
+- ✅ Android: pull-to-refresh in the file browser
+
+### Done (v0.7.10 = 2026-07-10, PR #48-#52)
+- ✅ Android: image preview pinch zoom (1x-5x), double-tap to zoom, FIT/FILL/1:1 display modes, auto-hiding overlay top bar (PR #48)
+- ✅ Server: on-the-fly ffmpeg transcode streaming for legacy video formats (avi/flv/wmv/vob) — `GET /api/v1/files/transcode` (§6.6), `transcode` capability; `GET /api/v1/files/mediainfo` (§6.8, `ffprobe`-based duration/dimensions) (PR #49)
+- ✅ Server: thumbnail `t=` param for seek-preview frames at an arbitrary timestamp (§6.7) (PR #49)
+- ✅ Android: auto-fallback to transcode on native codec errors, seek-by-restart, seek-preview scrub thumbnails (PR #49)
+- ✅ Protocol: v0.3.1 (PR #49)
+- ✅ Windows installer: bundles `ffmpeg`/`ffprobe` as an optional GPL-licensed component — `deploy/windows/fetch-ffmpeg.ps1`; server resolves tools beside-exe first, then system `PATH` (PR #50)
+- ✅ Android/Server: player UX — hh:mm:ss scrub time, jump-to-time dialog, persistent playback-resume positions (SharedPreferences, share-aware keys) (PR #51)
+- ✅ Server: archive support — `GET /api/v1/files/archive` (list), `GET /api/v1/files/archive/content` (stream entry), `POST /api/v1/files/archive/extract` (Zip-Slip protected), `archive` capability; pure-Go zip/rar/7z (+ cbz/cbr) (PR #52)
+- ✅ Android: archive browser + in-archive image swipe viewer (comic-reader, no extraction) + long-press Extract action (PR #52)
+- ✅ Server: streaming timeout fixes — chi `middleware.Timeout(60s)` now wraps only bounded API routes; default server `WriteTimeout` 5m → 0 (disabled) (PR #52)
+- ✅ Protocol: v0.3.2 (PR #52)
 
 ### Next up (priority order)
 1. **Third-party testing** — distribute Windows installer for external validation.
@@ -456,9 +580,9 @@ Do NOT pass PNG/BMP/JPEG to `systray.SetIcon()` on Windows.
 
 ### Pending user-action items (not Claude work)
 - **GHCR package visibility**: defaults to private; user needs to flip to public via repo settings UI to enable anonymous `docker pull`.
-- **Production tags**: user pushes `git tag v0.7.0 && git push origin v0.7.0` when comfortable.
+- **Production tags**: user pushes `git tag v0.7.10 && git push origin v0.7.10` when comfortable.
 - **Real-device pair test**: install debug APK on a phone, point at a running server, confirm the §4 flow works end-to-end (matters for sanity-checking the EncryptedSharedPreferences path on a real Keystore).
-- **Windows installer distribution**: `E:\Dev\SynctuarySetup-0.7.0.exe` (12.6 MB) ready for testers.
+- **Windows installer distribution**: `E:\Dev\SynctuarySetup-0.7.10.exe` (63.5 MB with bundled ffmpeg) ready for testers.
 
 ## 8. Subagent (サヤ) usage
 

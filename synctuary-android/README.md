@@ -1,8 +1,8 @@
 # Synctuary Android client
 
-Native Android client for [Synctuary](https://github.com/yuttan/Synctuary), implementing PROTOCOL v0.2.3 (`../PROTOCOL.md`).
+Native Android client for [Synctuary](https://github.com/yuttan/Synctuary), implementing PROTOCOL v0.3.2 (`../PROTOCOL.md`).
 
-> **Status**: skeleton — Compose splash boots, no networking yet. UI design lives in [`../docs/android-ui-mockups.html`](../docs/android-ui-mockups.html).
+> **Status** (v0.7.18): all core phases complete — pairing, file browser, media preview (pinch-zoom, transcode fallback for legacy formats, seek-preview scrubbing, persistent resume), favorites, photo backup, devices/settings, and an in-app archive browser with comic-reader image viewer. UI design lives in [`../docs/android-ui-mockups.html`](../docs/android-ui-mockups.html); see [`../CLAUDE.md`](../CLAUDE.md) §7 for the full PR-by-PR history.
 
 ## Stack
 
@@ -108,17 +108,18 @@ Both `Build & Test` (Android) and the Go-server CI must pass before merge thanks
 - **Compose code**: PascalCase composables, `@Preview` for every public composable when feasible
 - **No Kotlin sealed-hierarchy abuse**: keep result types simple; reach for `kotlin.Result` or domain-specific sealed classes only when the call site genuinely needs to discriminate on multiple terminal states
 
-## Roadmap (rough)
+## Implementation history
 
-The skeleton is Phase 1. Subsequent phases (one PR each, gated on the merging of the previous):
-
-- **Phase 2** — Network + crypto layer: OkHttp client with TLS pinning, BIP-39 / HKDF / Ed25519 implementations, pairing flow, secret storage in EncryptedSharedPreferences.
-- **Phase 3** — File browser screen: `GET /api/v1/files`, list rendering, navigation between paths, long-press menu (PROTOCOL §6).
-- **Phase 4** — Upload + download: chunked upload session driver, resume on app start, ExoPlayer / Coil for streaming preview (PROTOCOL §6.3).
-- **Phase 5** — Favorites: full §8 client implementation including hidden-list flow (BiometricPrompt unlock, 5-min session, mockup screens 11-14).
-- **Phase 6** — Devices + settings (mockup screens 6-7), left-handed mode toggle.
-
-Each phase ends with a green CI run + a screenshot of the freshly added screen attached to its merge commit.
+The original Phase 1-6 roadmap (skeleton → crypto/network → file browser →
+upload/download/preview → favorites → devices/settings) is complete; each
+phase landed as its own PR with a green CI run and a screenshot of the new
+screen attached to the merge commit. Feature work since then — pinch-zoom
+image preview, ffmpeg transcode fallback playback, seek-preview scrub
+thumbnails, playback resume, and the archive browser / comic-reader viewer —
+followed the same one-PR-per-feature convention. See
+[`../CLAUDE.md`](../CLAUDE.md) §7 ("Phase status") for the full, dated
+PR-by-PR history and current next steps (third-party testing; iOS client
+deferred until a test device is available).
 
 ## License
 

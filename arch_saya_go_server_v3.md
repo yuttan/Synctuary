@@ -1,7 +1,7 @@
 # サヤ Go サーバーアーキテクチャ提案 v3（PROTOCOL v0.2.2 準拠）
 
 **Date**: 2026-04-22
-**Base**: `arch_saya_go_server_v2.md` + Gemini v0.2.1 差分レビュー 4 件反映
+**Base**: `docs/history/arch_saya_go_server_v2.md` + Gemini v0.2.1 差分レビュー 4 件反映
 **Target**: PROTOCOL.md v0.2.2 準拠
 
 ---

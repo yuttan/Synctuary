@@ -4,27 +4,28 @@
 [![Android CI](https://github.com/yuttan/Synctuary/actions/workflows/android.yml/badge.svg)](https://github.com/yuttan/Synctuary/actions/workflows/android.yml)
 [![Release](https://github.com/yuttan/Synctuary/actions/workflows/release.yml/badge.svg)](https://github.com/yuttan/Synctuary/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](./LICENSE)
-[![PROTOCOL](https://img.shields.io/badge/PROTOCOL-v0.3.0-purple.svg)](./PROTOCOL.md)
+[![PROTOCOL](https://img.shields.io/badge/PROTOCOL-v0.3.2-purple.svg)](./PROTOCOL.md)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg?logo=go&logoColor=white)](./synctuary-server/go.mod)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF.svg?logo=kotlin&logoColor=white)](./synctuary-android/gradle/libs.versions.toml)
 
 A self-hosted file synchronization server for the home LAN, with native clients.
 ホームLAN用のセルフホスト型ファイル同期サーバーとネイティブクライアント。
 
-> **Status** (2026-05-17): server v0.7 — PROTOCOL v0.3.0 fully implemented (shares, pins, thumbnails, remote access). Android client v0.7.3 — all UI phases complete (file browser, media preview, favorites, backup, transfer progress). Admin Web UI embedded.
-> **ステータス** (2026-05-17): サーバー v0.7 — PROTOCOL v0.3.0 完全実装（共有、ピン、サムネイル、リモートアクセス）。Android クライアント v0.7.3 — 全UIフェーズ完了（ファイルブラウザ、メディアプレビュー、お気に入り、バックアップ、転送プログレス）。管理Web UI組み込み済み。
+> **Status** (2026-07-10): server v0.7.10 — PROTOCOL v0.3.2 fully implemented (shares, pins, thumbnails, remote access, ffmpeg transcode streaming, archive browsing). Android client v0.7.18 — all UI phases complete plus legacy-format playback, archive browser with comic-reader viewer, pinch-zoom image preview, and persistent playback resume. Admin Web UI embedded.
+> **ステータス** (2026-07-10): サーバー v0.7.10 — PROTOCOL v0.3.2 完全実装（共有、ピン、サムネイル、リモートアクセス、ffmpeg トランスコードストリーミング、アーカイブブラウジング）。Android クライアント v0.7.18 — 全UIフェーズ完了に加え、旧形式動画再生、コミックリーダー機能付きアーカイブブラウザ、ピンチズーム画像プレビュー、再生位置の永続レジュームを実装。管理Web UI組み込み済み。
 
 ## Components / コンポーネント
 
 | Component | Path | Status |
 |:---|:---|:---|
-| **Server (Go)** | [`synctuary-server/`](./synctuary-server/) | v0.7 — PROTOCOL v0.3.0 complete, admin UI, thumbnails, remote access (IPv6 + WireGuard) |
-| **Admin Web UI** | `/admin/` (embedded) | Preact + Vite + Tailwind CSS, embedded via `go:embed`. Dashboard, shares, devices, pairing, VPN management |
-| **Container image** | [`ghcr.io/yuttan/synctuary`](https://github.com/yuttan/Synctuary/pkgs/container/synctuary) | Multi-arch amd64 + arm64 on tag push; amd64 `:main` on every merge. Includes static ffmpeg for video thumbnails |
-| **Protocol spec** | [`PROTOCOL.md`](./PROTOCOL.md) | **v0.3.0** — §1-§11 finalized (§10 Shares, §11 Pins added) |
+| **Server (Go)** | [`synctuary-server/`](./synctuary-server/) | v0.7.10 — PROTOCOL v0.3.2 complete, admin UI, thumbnails, remote access (IPv6 + WireGuard), ffmpeg transcode streaming, archive browsing |
+| **Admin Web UI** | `/admin/` (embedded) | Preact + Vite + Tailwind CSS, embedded via `go:embed`. Dashboard, shares, devices, pairing, VPN management, seed phrase display |
+| **Container image** | [`ghcr.io/yuttan/synctuary`](https://github.com/yuttan/Synctuary/pkgs/container/synctuary) | Multi-arch amd64 + arm64 on tag push; amd64 `:main` on every merge. Includes static ffmpeg for video thumbnails and transcode |
+| **Windows installer** | [`synctuary-server/deploy/windows/`](./synctuary-server/deploy/windows/) | Inno Setup, per-user install, TLS auto-generated on first launch, optional bundled ffmpeg component |
+| **Protocol spec** | [`PROTOCOL.md`](./PROTOCOL.md) | **v0.3.2** — §1-§15 finalized (§10 Shares, §11 Pins, §6.6-§6.8 transcode/thumbnail/mediainfo, §6.9-§6.11 archive) |
 | **Architecture doc** | [`arch_saya_go_server_v3.md`](./arch_saya_go_server_v3.md) | Latest server-side design / サーバー側設計（最新） |
-| **Deployment guide** | [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) | Docker / Compose / systemd, all three paths covered / 導入ガイド（全3パターン対応） |
-| **Android client** | [`synctuary-android/`](./synctuary-android/) | v0.7.3 — all phases complete: file browser, media preview, favorites, photo backup, QR pairing, transfer progress |
+| **Deployment guide** | [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) | Docker / Compose / systemd / Windows installer, all four paths covered / 導入ガイド（全4パターン対応） |
+| **Android client** | [`synctuary-android/`](./synctuary-android/) | v0.7.18 — all phases complete: file browser, media preview (pinch-zoom, transcode fallback, resume), favorites, photo backup, QR pairing, archive browser + comic-reader viewer |
 | **Android UI mockups** | [`docs/android-ui-mockups.html`](./docs/android-ui-mockups.html) | 14 screens, Material 3 dark, right-thumb optimized / 14画面のモックアップ |
 | **iOS client** | (planned) | Deferred until test device is available / テスト端末入手後に実装予定 |
 
@@ -40,8 +41,12 @@ A self-hosted file synchronization server for the home LAN, with native clients.
   マルチドライブ共有。複数のホストディレクトリを名前付き共有として公開。各共有は独立したストレージルートで個別にブラウズ可能（PROTOCOL §10）。
 - **Content-addressed dedup** — same bytes uploaded a second time become a hardlink (or sync-copy fallback).
   コンテンツアドレス型重複排除。同じバイト列を再アップロードするとハードリンク化され、ストレージを節約。
-- **On-demand thumbnails** — JPEG thumbnails for images and video (via ffmpeg), cached in SQLite for instant delivery.
-  オンデマンドサムネイル。画像・動画（ffmpeg経由）のJPEGサムネイルをSQLiteキャッシュで即配信。
+- **On-demand thumbnails** — JPEG thumbnails for images and video (via ffmpeg), cached in SQLite for instant delivery, plus arbitrary-timestamp seek-preview thumbnails for scrubbing (PROTOCOL §6.7).
+  オンデマンドサムネイル。画像・動画（ffmpeg経由）のJPEGサムネイルをSQLiteキャッシュで即配信。スクラブ操作用の任意タイムスタンプ・シークプレビューサムネイルにも対応（PROTOCOL §6.7）。
+- **Legacy video playback** — on-the-fly ffmpeg transcode streaming (fragmented MP4, H.264/AAC) for formats a client's native decoder can't handle (AVI/FLV/WMV/VOB), with seek-by-restart and an `ffprobe` mediainfo endpoint for duration (PROTOCOL §6.6/§6.8). Capability-gated; the Windows installer and Docker image both bundle a static ffmpeg.
+  レガシー動画再生。ネイティブデコーダーが対応できない形式（AVI/FLV/WMV/VOB）向けに、ffmpegによるオンザフライ・トランスコードストリーミング（fragmented MP4, H.264/AAC）を提供。シーク時は再接続方式、`ffprobe` によるメディア情報取得にも対応（PROTOCOL §6.6/§6.8）。Windowsインストーラー・Dockerイメージともに静的ffmpegを同梱。
+- **In-app archive browsing** — list and stream individual entries from `.zip`/`.rar`/`.7z` (and `.cbz`/`.cbr` comic variants) without extracting; the Android client pages through image entries like a comic reader. Server-side extraction is Zip-Slip protected (PROTOCOL §6.9-§6.11).
+  アプリ内アーカイブブラウジング。`.zip`/`.rar`/`.7z`（および `.cbz`/`.cbr` コミック形式）を展開せずに一覧・ストリーム再生。Androidクライアントは画像エントリをコミックリーダーのようにページ送り可能。サーバー側展開はZip-Slip対策済み（PROTOCOL §6.9-§6.11）。
 - **Clean architecture** — domain → usecase → adapter, every external dependency behind an interface; mirrored in the Android client (`crypto/`, `data/`, `ui/` layers).
   クリーンアーキテクチャ。domain → usecase → adapter の階層構造。外部依存はすべてインターフェース背後に配置。
 
@@ -78,6 +83,14 @@ docker run -d --name synctuary \
 Or via Docker Compose / systemd — see [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) for the full guide including TLS cert generation and backup strategy.
 Docker Compose や systemd でも導入可能。TLS証明書生成やバックアップ戦略を含む完全ガイドは [`synctuary-server/deploy/README.md`](./synctuary-server/deploy/README.md) を参照。
 
+### Server (Windows installer) / サーバー（Windowsインストーラー）
+
+For Windows home-server setups and third-party testers, a one-click Inno Setup installer is available (no admin rights required). TLS is auto-generated on first launch; the `ffmpeg`/`ffprobe` component (for transcode playback and video thumbnails) is optional and selected by default in the "Full" install type.
+Windowsホームサーバーやテスター向けに、ワンクリックInno Setupインストーラーを提供（管理者権限不要）。TLSは初回起動時に自動生成。`ffmpeg`/`ffprobe` コンポーネント（トランスコード再生・動画サムネイル用）はオプションで、「Full」インストールタイプではデフォルトで選択済み。
+
+See [`synctuary-server/deploy/README.md#windows`](./synctuary-server/deploy/README.md#windows) for building and running the installer.
+インストーラーのビルド・実行手順は [`synctuary-server/deploy/README.md#windows`](./synctuary-server/deploy/README.md#windows) を参照。
+
 ### Android client (development) / Androidクライアント（開発環境）
 
 Prerequisites: JDK 17, Android SDK 26+, Gradle 8.10.2 (wrapper bundled).
@@ -89,8 +102,8 @@ cd synctuary-android
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The app launches into the onboarding flow (server URL + QR pairing or 24-word mnemonic). Once paired, the main UI shows four tabs: Files, Favorites, Devices, and Settings.
-アプリはオンボーディングフロー（サーバーURL + QRペアリング or 24語ニーモニック）から開始。ペアリング完了後、ファイル・お気に入り・デバイス・設定の4タブUIが表示されます。
+The app launches into the onboarding flow (server URL + QR pairing or 24-word mnemonic). Once paired, the main UI shows four tabs: Files, Favorites, Devices, and Settings. A QR code can also be scanned later from Settings to add a remote URL, and the file browser supports pull-to-refresh.
+アプリはオンボーディングフロー（サーバーURL + QRペアリング or 24語ニーモニック）から開始。ペアリング完了後、ファイル・お気に入り・デバイス・設定の4タブUIが表示されます。設定画面からQRコードをスキャンしてリモートURLを追加することも可能。ファイルブラウザはプルトゥリフレッシュに対応。
 
 ## Tests / テスト
 
