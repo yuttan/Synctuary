@@ -319,10 +319,13 @@ func (s *UploadSessionStore) AppendChunk(ctx context.Context, uploadID string, r
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("db: AppendChunk: mkdir target parent: %w", err)
 	}
-	// If overwrite=true a previous file may sit at target; os.Rename
-	// on POSIX replaces atomically, on Windows (Go 1.5+) it does too
-	// via MoveFileEx with MOVEFILE_REPLACE_EXISTING.
-	if err := os.Rename(stagingPath, target); err != nil {
+	// If overwrite=true a previous file may sit at target; rename
+	// replaces atomically on both POSIX and Windows. moveFile also
+	// handles the staging directory living on a DIFFERENT VOLUME than
+	// the target share (normal with multi-drive shares): plain
+	// os.Rename fails cross-device, so it falls back to a copy into
+	// the destination directory + same-volume rename.
+	if err := moveFile(stagingPath, target); err != nil {
 		return fmt.Errorf("db: AppendChunk: rename to target: %w", err)
 	}
 
