@@ -1,11 +1,13 @@
 # Synctuary Protocol Specification
 
-**Version**: 0.3.2
-**Date**: 2026-07-09
+**Version**: 0.3.3
+**Date**: 2026-07-13
 **Status**: Final
 **License**: CC-BY-4.0
 
 This document defines the wire protocol between Synctuary clients and servers. Third-party implementations of clients or servers conforming to this specification are welcome.
+
+**Changes from v0.3.2 Final**: Refined the §6.3.5 single-active-session-per-path rule — an `init` from the device that OWNS the active session now supersedes that session (atomic invalidate + fresh `201`) instead of being rejected with `409 upload_in_progress`. A dead session from a crashed client or failed finalization previously locked the path for the remaining session TTL (up to 24h) even for its owner. Conflicts between DIFFERENT devices are unchanged (`409` with `Retry-After`). Server-behavior liberalization only; existing clients are fully compatible.
 
 **Changes from v0.3.1 Final**: Added §6.9 Archive List (`GET /api/v1/files/archive`), §6.10 Archive Content (`GET /api/v1/files/archive/content`), and §6.11 Archive Extract (`POST /api/v1/files/archive/extract`) — an OPTIONAL, capability-gated family that lets clients browse the contents of a zip / rar / 7z (and the `.cbz` / `.cbr` comic-book variants) container, stream a single inner entry without extracting the whole archive (the comic-reader use case pages through image entries by swipe), and extract all entries server-side into a sibling directory. Added the `archive` capability flag. No wire-incompatible changes; clients that do not implement these features are fully compatible with a server that advertises them.
 
@@ -440,7 +442,10 @@ Cancels an in-progress upload. Server removes staging data. **Response: 204 No C
 
 v0.2.2 adopts a **single-active-session-per-path** rule to avoid last-write-wins races between multiple devices syncing the same location.
 
-When a client calls `POST /api/v1/files/upload/init` for a `path` that already has an active upload session (one for which `upload_id` has been issued, `expires_at` has not passed, the session is not marked `complete`, and has not been aborted via `DELETE`), the server MUST reject the new call with:
+When a client calls `POST /api/v1/files/upload/init` for a `path` that already has an active upload session (one for which `upload_id` has been issued, `expires_at` has not passed, the session is not marked `complete`, and has not been aborted via `DELETE`), the server's behavior depends on who owns the active session (v0.3.3):
+
+- **Same device** (the authenticated device of the `init` call is the one that created the active session): the server MUST **supersede** the existing session — atomically invalidate it (discarding any staged content) and issue a fresh session with a `201` response. Rationale: a crashed client or a failed finalization leaves a dead session that would otherwise lock the path with `upload_in_progress` for the remaining session TTL (up to 24h), blocking the very device that owns it. Versions prior to v0.3.3 rejected this case with `409`.
+- **Different device**: the server MUST reject the new call with:
 
 **Response (409):**
 
@@ -466,7 +471,8 @@ Clients receiving this response MAY:
 
 - Wait and retry after `expires_at`.
 - Surface a user-visible conflict ("another device is uploading to this path").
-- If the client recognizes it owns the conflicting session (by comparing its own session state), it MAY call `DELETE /api/v1/files/upload/<own_upload_id>` to abort and then re-init.
+
+(Prior to v0.3.3 a client could also receive this response for its own session and had to abort via `DELETE /api/v1/files/upload/<own_upload_id>` before re-initializing; under the same-device supersede rule that case no longer occurs.)
 
 A server MUST enforce the single-active-session rule at `init` time, not at final-chunk commit time; deferring the check until commit would reintroduce the race. The check and the insertion of the new session record MUST be atomic (e.g., under a database transaction or equivalent critical section).
 

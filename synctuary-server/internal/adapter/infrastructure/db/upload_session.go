@@ -134,6 +134,32 @@ func (s *UploadSessionStore) Init(ctx context.Context, params *file.UploadInitPa
 	defer func() { _ = tx.Rollback() }()
 	_, _ = tx.ExecContext(ctx, `BEGIN IMMEDIATE`) // best-effort upgrade
 
+	// Same-device takeover (§6.3.5 refinement): a device re-initializing
+	// an upload to a path where IT already holds the active session
+	// supersedes its own session. Without this, a crashed client or a
+	// failed finalization (e.g. the cross-volume 500) locks the path
+	// with upload_in_progress for the remaining TTL — up to 24h — even
+	// for the very device that owns the dead session. Other devices'
+	// sessions are untouched and still yield 409.
+	var staleStaging string
+	err = tx.QueryRowContext(ctx,
+		`SELECT staging_path FROM uploads WHERE path = ? AND completed = 0 AND device_id = ?`,
+		params.Path, params.DeviceID,
+	).Scan(&staleStaging)
+	switch {
+	case err == nil:
+		if _, derr := tx.ExecContext(ctx,
+			`DELETE FROM uploads WHERE path = ? AND completed = 0 AND device_id = ?`,
+			params.Path, params.DeviceID,
+		); derr != nil {
+			return nil, fmt.Errorf("db: Init: supersede own session: %w", derr)
+		}
+	case errors.Is(err, sql.ErrNoRows):
+		staleStaging = ""
+	default:
+		return nil, fmt.Errorf("db: Init: check own session: %w", err)
+	}
+
 	// Purge any expired active row for this path so a new Init can
 	// succeed without waiting for the background GC.
 	if _, err := tx.ExecContext(ctx,
@@ -173,6 +199,13 @@ func (s *UploadSessionStore) Init(ctx context.Context, params *file.UploadInitPa
 	if err := tx.Commit(); err != nil {
 		_ = os.Remove(stagingPath)
 		return nil, fmt.Errorf("db: Init: commit: %w", err)
+	}
+
+	// The superseded session's staging file is orphaned once the
+	// takeover commits; remove it best-effort (never the new session's
+	// own file).
+	if staleStaging != "" && staleStaging != stagingPath {
+		_ = os.Remove(staleStaging)
 	}
 
 	return &file.UploadInitResult{

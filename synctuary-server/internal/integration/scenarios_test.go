@@ -753,8 +753,11 @@ func TestDownloadContentDisposition(t *testing.T) {
 	}
 }
 
-// TestUploadInProgressRetryAfter: 409 on duplicate init includes Retry-After.
-func TestUploadInProgressRetryAfter(t *testing.T) {
+// TestUploadSameDeviceTakeover: re-init by the session owner supersedes
+// its own active session (§6.3.5 refinement — a dead session from a
+// crashed client or failed finalization must not lock the path for the
+// TTL); a DIFFERENT device still gets 409 with Retry-After.
+func TestUploadSameDeviceTakeover(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.cleanup()
 	c := pairDevice(t, env, "uploader", "linux")
@@ -775,13 +778,19 @@ func TestUploadInProgressRetryAfter(t *testing.T) {
 	expectStatus(t, resp, http.StatusCreated, "first init")
 	_ = resp.Body.Close()
 
+	// Same device re-initializes: takeover, not 409.
 	resp = c.doJSON(t, "POST", "/api/v1/files/upload/init", initBody)
+	expectStatus(t, resp, http.StatusCreated, "same-device re-init (takeover)")
+	_ = resp.Body.Close()
+
+	// A different device on the same path still conflicts.
+	other := pairDevice(t, env, "other-device", "android")
+	resp = other.doJSON(t, "POST", "/api/v1/files/upload/init", initBody)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("status=%d, want 409", resp.StatusCode)
+		t.Fatalf("status=%d, want 409 for another device", resp.StatusCode)
 	}
-	ra := resp.Header.Get("Retry-After")
-	if ra == "" {
+	if resp.Header.Get("Retry-After") == "" {
 		t.Error("Retry-After header missing on 409 upload_in_progress")
 	}
 }

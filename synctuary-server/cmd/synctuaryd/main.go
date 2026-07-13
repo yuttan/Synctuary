@@ -64,7 +64,7 @@ import (
 // protocolVersion is the wire spec the server implements. It's a
 // hard property of the codebase (ABI), so it stays a const — never
 // override at link time.
-const protocolVersion = "0.3.2"
+const protocolVersion = "0.3.3"
 
 // serverVersion and commit are advertised via /api/v1/info and are
 // overridable at link time via:
