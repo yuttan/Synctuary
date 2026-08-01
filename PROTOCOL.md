@@ -1,11 +1,13 @@
 # Synctuary Protocol Specification
 
-**Version**: 0.3.3
-**Date**: 2026-07-13
+**Version**: 0.3.4
+**Date**: 2026-07-14
 **Status**: Final
 **License**: CC-BY-4.0
 
 This document defines the wire protocol between Synctuary clients and servers. Third-party implementations of clients or servers conforming to this specification are welcome.
+
+**Changes from v0.3.3 Final**: Added §5.1.1 specifying how clients MUST interpret `protocol_version` — compare MAJOR/MINOR numerically, ignore PATCH, and decide feature availability from `capabilities` rather than the version string. Clarification only; no wire change. Recorded because an exact-string-equality check in a client silently breaks pairing on every additive server release (observed in the reference Android client, which pinned `"0.2.3"`).
 
 **Changes from v0.3.2 Final**: Refined the §6.3.5 single-active-session-per-path rule — an `init` from the device that OWNS the active session now supersedes that session (atomic invalidate + fresh `201`) instead of being rejected with `409 upload_in_progress`. A dead session from a crashed client or failed finalization previously locked the path for the remaining session TTL (up to 24h) even for its owner. Conflicts between DIFFERENT devices are unchanged (`409` with `Retry-After`). Server-behavior liberalization only; existing clients are fully compatible.
 
@@ -237,6 +239,19 @@ Unauthenticated. Used for discovery and capability negotiation.
 - `capabilities` contains boolean flags only. Capability names are additive-only across versions; removal of a capability requires a major version bump (`/api/v2/…`).
 - `transcode` (added v0.3.1) advertises support for the OPTIONAL on-the-fly video transcode endpoint (§6.6). A server that lacks a transcoder MUST advertise `"transcode": false`.
 - `archive` (added v0.3.2) advertises support for the OPTIONAL archive browsing / streaming / extraction family (§6.9–§6.11). A server that does not implement it MUST advertise `"archive": false`.
+
+#### 5.1.1 Interpreting `protocol_version`
+
+`protocol_version` is `MAJOR.MINOR[.PATCH]`. Clients MUST NOT compare it for string equality: within a major version, minor and patch releases are **additive only**, and every optional endpoint family is gated behind a `capabilities` flag rather than a version number.
+
+A client SHOULD accept a server when:
+
+- the MAJOR component equals the major the client implements, **and**
+- the MINOR component is greater than or equal to the lowest minor providing the features the client requires.
+
+The PATCH component MUST be ignored for compatibility purposes. Feature availability MUST be decided from `capabilities`, never from the version string. A malformed or absent `protocol_version` SHOULD be treated as incompatible.
+
+Rationale: an exact-match check silently breaks pairing on the next additive server release, and — because already-paired devices keep working — the breakage typically surfaces much later, when a user re-pairs. A wire-incompatible change is signalled by a MAJOR bump and a new URL prefix (`/api/v2/…`), which is what a client must actually refuse.
 
 ## 6. File Operations (Standard Mode)
 

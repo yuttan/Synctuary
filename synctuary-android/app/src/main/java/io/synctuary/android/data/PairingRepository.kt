@@ -100,9 +100,11 @@ class PairingRepository(
         } catch (e: Exception) {
             throw PairingException("server /info call failed: ${e.message}", e)
         }
-        if (info.protocol_version != "0.2.3") {
+        if (!isProtocolCompatible(info.protocol_version)) {
             throw PairingException(
-                "incompatible protocol_version: server=${info.protocol_version}, client=0.2.3",
+                "incompatible protocol_version: server=${info.protocol_version}, " +
+                    "client requires $PROTOCOL_MAJOR.$PROTOCOL_MIN_MINOR or newer within " +
+                    "major $PROTOCOL_MAJOR",
             )
         }
         val serverId: ByteArray = try {
@@ -219,6 +221,37 @@ class PairingRepository(
 /** Caller-friendly failure type. Wraps the underlying exception so
  *  callers can `cause` for diagnostics without re-throwing. */
 class PairingException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+// ── protocol_version compatibility (PROTOCOL §13) ───────────────────
+//
+// The pairing handshake only needs a COARSE guard here: per-feature
+// differences are negotiated through /info.capabilities, not the
+// version string. Everything this client relies on landed by 0.3.0
+// (§10 shares, §11 pins); later minors (0.3.1 transcode, 0.3.2
+// archive, 0.3.3 upload takeover) are additive and capability-gated.
+//
+// This used to be an exact string match against "0.2.3", which silently
+// broke re-pairing the moment the server advertised 0.3.0 — already-
+// paired devices kept working, so it only surfaced when a user tried to
+// pair again months later.
+
+internal const val PROTOCOL_MAJOR = 0
+internal const val PROTOCOL_MIN_MINOR = 3
+
+/**
+ * Returns true when a server advertising [version] can be paired with.
+ * Accepts the same major with a minor at or above what this client
+ * needs; the patch component is ignored entirely. Malformed values are
+ * rejected rather than assumed compatible.
+ */
+internal fun isProtocolCompatible(version: String?): Boolean {
+    if (version.isNullOrBlank()) return false
+    val parts = version.trim().split(".")
+    if (parts.size < 2) return false
+    val major = parts[0].toIntOrNull() ?: return false
+    val minor = parts[1].toIntOrNull() ?: return false
+    return major == PROTOCOL_MAJOR && minor >= PROTOCOL_MIN_MINOR
+}
 
 /** Successful-pair summary returned to the UI. The persisted device
  *  state lives in [SecretStore]; this is just enough to render a
