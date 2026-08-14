@@ -398,41 +398,97 @@ class FileBrowserViewModel @JvmOverloads constructor(
         }
     }
 
-    fun startUpload(uri: Uri) {
+    fun startUpload(uri: Uri) = startUploads(listOf(uri))
+
+    /**
+     * Upload [uris] one after another in a single coroutine.
+     *
+     * Sequential by design: the server enforces one active session per
+     * path and the progress banner shows a single transfer, so firing
+     * them concurrently would both fight the server and make progress
+     * meaningless. A failure does NOT abort the batch — every file is
+     * attempted and the outcome is summarized in [TransferState.BatchDone].
+     */
+    fun startUploads(uris: List<Uri>) {
+        if (uris.isEmpty()) return
         if (_uiState.value.uploadState is TransferState.Running) return
 
-        val app = getApplication<Application>()
-        val fileName = resolveDisplayName(uri)
-        val remotePath = buildRemoteUploadPath(fileName)
-
-        val t0 = System.currentTimeMillis()
-        _uiState.update { it.copy(uploadState = TransferState.Running(fileName, 0L, null, startTimeMs = t0)) }
         viewModelScope.launch {
-            try {
-                repo.uploadFile(
-                    app.contentResolver, uri, remotePath,
-                    onProgress = { uploaded, total ->
-                        _uiState.update { s ->
-                            val prev = s.uploadState as? TransferState.Running
-                            s.copy(uploadState = TransferState.Running(
-                                fileName, uploaded, total,
-                                startTimeMs = prev?.startTimeMs ?: t0,
-                                startBytes = prev?.startBytes ?: 0L,
-                            ))
-                        }
-                    },
-                    shareId = _currentShare.value?.id,
-                )
-                _uiState.update {
-                    it.copy(uploadState = TransferState.Done(fileName, remotePath))
-                }
-                loadDirectory(_uiState.value.currentPath)
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(uploadState = TransferState.Failed(fileName, e.message ?: "Upload failed"))
+            var succeeded = 0
+            var failed = 0
+            var lastName = ""
+            var lastPath = ""
+            var lastError = ""
+
+            uris.forEachIndexed { index, uri ->
+                val fileName = resolveDisplayName(uri)
+                lastName = fileName
+                try {
+                    lastPath = uploadOne(uri, fileName, index + 1, uris.size)
+                    succeeded++
+                } catch (e: Exception) {
+                    failed++
+                    lastError = e.message ?: "Upload failed"
                 }
             }
+
+            // One refresh for the whole batch rather than per file.
+            loadDirectory(_uiState.value.currentPath)
+
+            _uiState.update {
+                val terminal = when {
+                    uris.size > 1 -> TransferState.BatchDone(succeeded, failed)
+                    failed > 0 -> TransferState.Failed(lastName, lastError)
+                    else -> TransferState.Done(lastName, lastPath)
+                }
+                it.copy(uploadState = terminal)
+            }
         }
+    }
+
+    /** Uploads a single file, publishing progress. Returns the remote path. */
+    private suspend fun uploadOne(
+        uri: Uri,
+        fileName: String,
+        batchIndex: Int,
+        batchTotal: Int,
+    ): String {
+        val app = getApplication<Application>()
+        val remotePath = buildRemoteUploadPath(fileName)
+        val t0 = System.currentTimeMillis()
+
+        _uiState.update {
+            it.copy(
+                uploadState = TransferState.Running(
+                    fileName, 0L, null,
+                    startTimeMs = t0,
+                    batchIndex = batchIndex,
+                    batchTotal = batchTotal,
+                ),
+            )
+        }
+
+        repo.uploadFile(
+            app.contentResolver, uri, remotePath,
+            onProgress = { uploaded, total ->
+                _uiState.update { s ->
+                    val prev = s.uploadState as? TransferState.Running
+                    s.copy(
+                        uploadState = TransferState.Running(
+                            fileName, uploaded, total,
+                            // Keep the per-file start values so speed/ETA
+                            // stay accurate across progress callbacks.
+                            startTimeMs = prev?.startTimeMs ?: t0,
+                            startBytes = prev?.startBytes ?: 0L,
+                            batchIndex = batchIndex,
+                            batchTotal = batchTotal,
+                        ),
+                    )
+                }
+            },
+            shareId = _currentShare.value?.id,
+        )
+        return remotePath
     }
 
     fun dismissTransferFeedback() {

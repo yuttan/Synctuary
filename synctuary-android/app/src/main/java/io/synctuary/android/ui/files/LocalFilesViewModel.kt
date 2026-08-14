@@ -24,18 +24,50 @@ data class LocalFileEntry(
     val uri: Uri,
 )
 
+/** A folder the user granted access to, shown at the browser's root. */
+data class LocalRoot(
+    val name: String,
+    val uri: Uri,
+)
+
+/**
+ * Human-readable label for a granted tree.
+ *
+ * [docName] is what DocumentFile reports, which is usually right but is
+ * null for some providers. The fallback parses the tree URI's document
+ * id (`primary:Pictures/Camera`), stripping the storage-volume prefix
+ * and keeping the last path segment.
+ */
+internal fun localRootDisplayName(docName: String?, lastPathSegment: String?): String {
+    if (!docName.isNullOrBlank()) return docName
+    val seg = lastPathSegment ?: return "Folder"
+    val afterVolume = seg.substringAfter(':', seg)
+    val leaf = afterVolume.trimEnd('/').substringAfterLast('/')
+    return when {
+        leaf.isNotBlank() -> leaf
+        // A whole-volume grant has nothing after the colon.
+        seg.startsWith("primary:") -> "Internal storage"
+        else -> seg.substringBefore(':').ifBlank { "Folder" }
+    }
+}
+
 data class LocalFilesUiState(
     val currentPath: String = "",
     val entries: List<LocalFileEntry> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
     val folderConfigured: Boolean = false,
+    // Configured roots, listed when the user is above any of them.
+    val roots: List<LocalRoot> = emptyList(),
+    // True while showing the root picker rather than a directory listing.
+    val atRootList: Boolean = true,
 )
 
 class LocalFilesViewModel @JvmOverloads constructor(
     application: Application,
     private val prefsName: String = "synctuary-settings",
     private val prefKey: String = "download_folder_uri",
+    private val rootsKey: String = "local_folder_roots",
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(LocalFilesUiState())
@@ -50,45 +82,83 @@ class LocalFilesViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Reads the configured download folder URI and lists its contents.
-     * If no URI is stored, sets folderConfigured = false.
+     * Show the root list: every folder the user has granted access to.
+     *
+     * Android's scoped storage has no "browse the whole filesystem"
+     * affordance an app may use — each tree must be granted through SAF
+     * and its permission persisted. So instead of one hardcoded folder,
+     * we keep a set of granted trees and present them as roots (mirroring
+     * how server shares appear as root drives on the Files tab).
      */
     fun loadDirectory() {
-        val app = getApplication<Application>()
-        val prefs = app.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        val uriStr = prefs.getString(prefKey, null)
-
-        if (uriStr.isNullOrBlank()) {
-            _uiState.update {
-                it.copy(
-                    folderConfigured = false,
-                    loading = false,
-                    entries = emptyList(),
-                    error = null,
-                )
-            }
-            return
-        }
-
-        val treeUri = Uri.parse(uriStr)
-        val rootDoc = DocumentFile.fromTreeUri(app, treeUri)
-        if (rootDoc == null || !rootDoc.exists()) {
-            _uiState.update {
-                it.copy(
-                    folderConfigured = true,
-                    loading = false,
-                    error = "Download folder is not accessible",
-                    entries = emptyList(),
-                )
-            }
-            return
-        }
-
-        // Reset navigation stack to root
         navStack.clear()
-        navStack.add(rootDoc)
+        val roots = readRoots()
+        _uiState.update {
+            it.copy(
+                roots = roots,
+                atRootList = true,
+                folderConfigured = roots.isNotEmpty(),
+                entries = emptyList(),
+                currentPath = "",
+                loading = false,
+                error = null,
+            )
+        }
+    }
 
+    /** Enter one of the configured roots. */
+    fun openRoot(root: LocalRoot) {
+        val app = getApplication<Application>()
+        val doc = DocumentFile.fromTreeUri(app, root.uri)
+        if (doc == null || !doc.exists()) {
+            _uiState.update { it.copy(error = "Folder is no longer accessible: ${root.name}") }
+            return
+        }
+        navStack.clear()
+        navStack.add(doc)
         listCurrentDirectory()
+    }
+
+    /**
+     * Persist a newly granted tree. The caller MUST already have taken
+     * the persistable permission (see LocalFilesScreen) — without it the
+     * grant is dropped on reboot and the root silently breaks.
+     */
+    fun addRoot(uri: Uri) {
+        val prefs = prefs()
+        val current = prefs.getStringSet(rootsKey, emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(uri.toString())
+        prefs.edit().putStringSet(rootsKey, current).apply()
+        loadDirectory()
+    }
+
+    /**
+     * Forget a root. Releases the persistable permission and drops it
+     * from the set; nothing on disk is touched.
+     */
+    fun removeRoot(root: LocalRoot) {
+        val app = getApplication<Application>()
+        val prefs = prefs()
+        val current = prefs.getStringSet(rootsKey, emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.remove(root.uri.toString())
+        prefs.edit().putStringSet(rootsKey, current).apply()
+
+        // The download folder is stored separately; clear it too when it
+        // is the folder being removed, so Settings does not keep pointing
+        // at a tree we no longer hold permission for.
+        if (prefs.getString(prefKey, null) == root.uri.toString()) {
+            prefs.edit().remove(prefKey).apply()
+        }
+
+        try {
+            app.contentResolver.releasePersistableUriPermission(
+                root.uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        } catch (_: SecurityException) {
+            // Already released or never held — nothing to undo.
+        }
+        loadDirectory()
     }
 
     /**
@@ -104,13 +174,44 @@ class LocalFilesViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Navigate up one level. Returns false if already at root.
+     * Navigate up one level. From a root's top level this returns to the
+     * root list. Returns false only when already at the root list.
      */
     fun navigateUp(): Boolean {
-        if (navStack.size <= 1) return false
+        if (navStack.isEmpty()) return false
+        if (navStack.size == 1) {
+            loadDirectory()
+            return true
+        }
         navStack.removeAt(navStack.lastIndex)
         listCurrentDirectory()
         return true
+    }
+
+    private fun prefs() =
+        getApplication<Application>().getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+
+    /**
+     * Reads the granted roots, migrating the legacy single
+     * `download_folder_uri` setting in as the first root so existing
+     * installs keep the folder they already picked.
+     */
+    private fun readRoots(): List<LocalRoot> {
+        val app = getApplication<Application>()
+        val prefs = prefs()
+        val stored = prefs.getStringSet(rootsKey, emptySet())?.toMutableSet() ?: mutableSetOf()
+
+        val legacy = prefs.getString(prefKey, null)
+        if (!legacy.isNullOrBlank() && stored.add(legacy)) {
+            prefs.edit().putStringSet(rootsKey, stored).apply()
+        }
+
+        return stored.mapNotNull { s ->
+            val uri = runCatching { Uri.parse(s) }.getOrNull() ?: return@mapNotNull null
+            val doc = DocumentFile.fromTreeUri(app, uri)
+            if (doc == null || !doc.exists()) return@mapNotNull null
+            LocalRoot(name = localRootDisplayName(doc.name, uri.lastPathSegment), uri = uri)
+        }.sortedBy { it.name.lowercase() }
     }
 
     /**
@@ -188,6 +289,7 @@ class LocalFilesViewModel @JvmOverloads constructor(
                 loading = true,
                 error = null,
                 folderConfigured = true,
+                atRootList = false,
             )
         }
 

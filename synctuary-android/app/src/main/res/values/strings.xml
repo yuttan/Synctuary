@@ -203,4 +203,16 @@
     <string name="archive_root">Archive</string>
     <string name="archive_folder">Folder</string>
     <string name="archive_back">Back</string>
+
+    <!-- Multi-file upload -->
+    <string name="files_uploaded_batch">%1$d files uploaded</string>
+    <string name="files_uploaded_batch_partial">%1$d uploaded, %2$d failed</string>
+
+    <!-- Local folder roots -->
+    <string name="local_add_folder">Add folder</string>
+    <string name="local_no_folders">No folders added yet</string>
+    <string name="local_no_folders_hint">Add a folder to browse files on this device. You can add as many as you like.</string>
+    <string name="local_remove_folder_title">Remove folder?</string>
+    <string name="local_remove_folder_message">Stop showing \"%1$s\" here. Nothing on the device is deleted.</string>
+    <string name="local_remove_folder_confirm">Remove</string>
 </resources>

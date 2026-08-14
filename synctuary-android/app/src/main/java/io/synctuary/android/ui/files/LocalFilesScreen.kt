@@ -1,6 +1,9 @@
 package io.synctuary.android.ui.files
 
+import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
@@ -31,7 +35,9 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -39,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -51,8 +58,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.synctuary.android.R
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -65,28 +75,33 @@ fun LocalFilesScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var selectedEntry by remember { mutableStateOf<LocalFileEntry?>(null) }
+    var rootPendingRemoval by remember { mutableStateOf<LocalRoot?>(null) }
+    val context = LocalContext.current
+
+    // Each browsable folder is a separate SAF grant. Taking the
+    // PERSISTABLE permission is what makes the root survive a reboot;
+    // without it the tree becomes unreadable on next launch.
+    val addFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+            viewModel.addRoot(uri)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         when {
-            !state.folderConfigured -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "No download folder configured",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "Set a download folder in Settings",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+            state.atRootList -> {
+                LocalRootList(
+                    roots = state.roots,
+                    onOpen = { viewModel.openRoot(it) },
+                    onLongPress = { rootPendingRemoval = it },
+                    onAddFolder = { addFolderLauncher.launch(null) },
+                )
             }
 
             state.loading -> {
@@ -157,6 +172,30 @@ fun LocalFilesScreen(
         }
     }
 
+    rootPendingRemoval?.let { root ->
+        AlertDialog(
+            onDismissRequest = { rootPendingRemoval = null },
+            title = { Text(stringResource(R.string.local_remove_folder_title)) },
+            text = { Text(stringResource(R.string.local_remove_folder_message, root.name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.removeRoot(root)
+                    rootPendingRemoval = null
+                }) {
+                    Text(
+                        stringResource(R.string.local_remove_folder_confirm),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { rootPendingRemoval = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
     // Action bottom sheet
     selectedEntry?.let { entry ->
         LocalFileActionSheet(
@@ -179,6 +218,109 @@ fun LocalFilesScreen(
                 selectedEntry = null
             },
         )
+    }
+}
+
+// -- Root list ---------------------------------------------------------------
+
+/**
+ * Lists the folders the user has granted access to. Android's scoped
+ * storage gives no app-wide filesystem view, so these SAF grants are the
+ * roots — presented the same way server shares appear on the Files tab.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LocalRootList(
+    roots: List<LocalRoot>,
+    onOpen: (LocalRoot) -> Unit,
+    onLongPress: (LocalRoot) -> Unit,
+    onAddFolder: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (roots.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(32.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.local_no_folders),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.local_no_folders_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(roots, key = { it.uri.toString() }) { root ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = { onOpen(root) },
+                                onLongClick = { onLongPress(root) },
+                            )
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF90CAF9).copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Storage,
+                                contentDescription = null,
+                                tint = Color(0xFF90CAF9),
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = root.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = root.uri.lastPathSegment ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+            }
+        }
+
+        TextButton(
+            onClick = onAddFolder,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Icon(Icons.Filled.CreateNewFolder, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.local_add_folder))
+        }
     }
 }
 
