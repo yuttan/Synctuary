@@ -1,5 +1,6 @@
 package io.synctuary.android.ui.files
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -119,6 +120,14 @@ fun FileBrowserScreen(
         contract = ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         if (uris.isNotEmpty()) viewModel.startUploads(uris)
+    }
+
+    // Folder upload: the tree grant lets us walk the folder recursively
+    // and recreate its structure on the server.
+    val folderUploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        uri?.let { viewModel.startFolderUpload(it) }
     }
 
     val saveAsLauncher = rememberLauncherForActivityResult(
@@ -260,12 +269,34 @@ fun FileBrowserScreen(
         },
         floatingActionButton = {
             if (!viewModel.isAtSharesRoot) {
-                FloatingActionButton(
-                    onClick = { uploadLauncher.launch(arrayOf("*/*")) },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.files_upload))
+                Box {
+                    var uploadMenuOpen by remember { mutableStateOf(false) }
+                    FloatingActionButton(
+                        onClick = { uploadMenuOpen = true },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.files_upload))
+                    }
+                    DropdownMenu(
+                        expanded = uploadMenuOpen,
+                        onDismissRequest = { uploadMenuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_upload_files)) },
+                            onClick = {
+                                uploadMenuOpen = false
+                                uploadLauncher.launch(arrayOf("*/*"))
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_upload_folder)) },
+                            onClick = {
+                                uploadMenuOpen = false
+                                folderUploadLauncher.launch(null)
+                            },
+                        )
+                    }
                 }
             }
         },

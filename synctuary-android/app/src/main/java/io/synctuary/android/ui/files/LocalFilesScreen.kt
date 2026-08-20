@@ -2,6 +2,7 @@ package io.synctuary.android.ui.files
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -48,11 +49,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,7 +79,9 @@ import java.util.Locale
 fun LocalFilesScreen(
     viewModel: LocalFilesViewModel,
     onUploadToServer: (Uri) -> Unit,
+    onUploadFolderToServer: (List<UploadItem>) -> Unit = {},
 ) {
+    val scope = rememberCoroutineScope()
     val state by viewModel.uiState.collectAsState()
     var selectedEntry by remember { mutableStateOf<LocalFileEntry?>(null) }
     var rootPendingRemoval by remember { mutableStateOf<LocalRoot?>(null) }
@@ -93,14 +102,41 @@ fun LocalFilesScreen(
         }
     }
 
+    // MANAGE_EXTERNAL_STORAGE is granted on a system screen, so the only
+    // way to notice it is to re-check when the app comes back to the
+    // foreground. Re-reading at the root list is cheap.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME &&
+                viewModel.hasAllFilesAccess() != state.hasAllFilesAccess
+            ) {
+                viewModel.loadDirectory()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         when {
             state.atRootList -> {
                 LocalRootList(
                     roots = state.roots,
+                    hasAllFilesAccess = state.hasAllFilesAccess,
                     onOpen = { viewModel.openRoot(it) },
                     onLongPress = { rootPendingRemoval = it },
                     onAddFolder = { addFolderLauncher.launch(null) },
+                    onGrantAllFiles = {
+                        // Opens the system screen; there is no runtime
+                        // prompt for MANAGE_EXTERNAL_STORAGE.
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        }
+                        runCatching { context.startActivity(intent) }.onFailure {
+                            context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                        }
+                    },
                 )
             }
 
@@ -210,7 +246,17 @@ fun LocalFilesScreen(
                 selectedEntry = null
             },
             onUploadToServer = {
-                onUploadToServer(entry.uri)
+                if (entry.isDirectory) {
+                    // Enumerated here (not in the caller) because only this
+                    // ViewModel knows whether we are on a SAF tree or raw
+                    // files; the result carries per-file relative paths.
+                    scope.launch {
+                        val items = viewModel.collectFolderForUpload(entry)
+                        if (items.isNotEmpty()) onUploadFolderToServer(items)
+                    }
+                } else {
+                    onUploadToServer(entry.uri)
+                }
                 selectedEntry = null
             },
             onDelete = {
@@ -232,9 +278,11 @@ fun LocalFilesScreen(
 @Composable
 private fun LocalRootList(
     roots: List<LocalRoot>,
+    hasAllFilesAccess: Boolean,
     onOpen: (LocalRoot) -> Unit,
     onLongPress: (LocalRoot) -> Unit,
     onAddFolder: () -> Unit,
+    onGrantAllFiles: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         if (roots.isEmpty()) {
@@ -311,15 +359,35 @@ private fun LocalRootList(
             }
         }
 
-        TextButton(
-            onClick = onAddFolder,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Icon(Icons.Filled.CreateNewFolder, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.local_add_folder))
+        // Without all-files access, Android 11+ refuses to grant the
+        // Download folder and the storage roots through the folder
+        // picker — so offer the permission instead of leaving the user
+        // stuck at "this folder can't be used".
+        if (!hasAllFilesAccess) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text(
+                    text = stringResource(R.string.local_all_files_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onGrantAllFiles) {
+                    Text(stringResource(R.string.local_grant_all_files))
+                }
+            }
+        }
+
+        if (!hasAllFilesAccess) {
+            TextButton(
+                onClick = onAddFolder,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Icon(Icons.Filled.CreateNewFolder, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.local_add_folder))
+            }
         }
     }
 }
@@ -522,7 +590,14 @@ private fun LocalFileActionSheet(
         if (!entry.isDirectory) {
             LocalSheetAction(Icons.Filled.OpenInNew, "Open") { onOpen() }
             LocalSheetAction(Icons.Filled.Share, "Share") { onShare() }
-            LocalSheetAction(Icons.Filled.CloudUpload, "Upload to server") { onUploadToServer() }
+            LocalSheetAction(
+                Icons.Filled.CloudUpload,
+                if (entry.isDirectory) {
+                    stringResource(R.string.local_upload_folder_to_server)
+                } else {
+                    stringResource(R.string.local_upload_to_server)
+                },
+            ) { onUploadToServer() }
 
             HorizontalDivider(
                 modifier = Modifier.padding(vertical = 4.dp),

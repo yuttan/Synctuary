@@ -28,6 +28,7 @@ fun FilesTabScreen(
     onPreview: (FileEntry) -> Unit,
     onAddToFavorites: ((entry: FileEntry, path: String) -> Unit)?,
     onUploadFromLocal: (Uri) -> Unit,
+    onUploadFolderFromLocal: (List<UploadItem>) -> Unit = {},
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -73,6 +74,7 @@ fun FilesTabScreen(
             1 -> LocalFilesScreen(
                 viewModel = localFilesVm,
                 onUploadToServer = onUploadFromLocal,
+                onUploadFolderToServer = onUploadFolderFromLocal,
             )
         }
     }

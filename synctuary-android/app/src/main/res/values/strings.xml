@@ -215,4 +215,12 @@
     <string name="local_remove_folder_title">Remove folder?</string>
     <string name="local_remove_folder_message">Stop showing \"%1$s\" here. Nothing on the device is deleted.</string>
     <string name="local_remove_folder_confirm">Remove</string>
+    <string name="local_all_files_hint">Android blocks the Download folder and storage roots from the folder picker. Grant all-files access to browse them.</string>
+    <string name="local_grant_all_files">Grant all-files access</string>
+    <string name="local_upload_to_server">Upload to server</string>
+    <string name="local_upload_folder_to_server">Upload folder to server</string>
+
+    <!-- Upload menu -->
+    <string name="files_upload_files">Upload files</string>
+    <string name="files_upload_folder">Upload folder</string>
 </resources>

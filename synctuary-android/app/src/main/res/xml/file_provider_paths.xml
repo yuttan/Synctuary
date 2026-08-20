@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Paths the FileProvider may hand out as content:// URIs.
+
+    external-path with path="." covers all of shared storage, which is
+    what the Device-tab browser walks when MANAGE_EXTERNAL_STORAGE is
+    granted. root-path covers secondary volumes (SD card / USB), whose
+    mount points sit outside getExternalStorageDirectory().
+
+    The provider is not exported and grants are per-URI and transient, so
+    this does not expose anything the app cannot already read — it only
+    lets the user hand a chosen file to another app or to the uploader.
+-->
+<paths>
+    <external-path name="shared_storage" path="." />
+    <root-path name="volumes" path="/storage/" />
+</paths>
