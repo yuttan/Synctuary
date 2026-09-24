@@ -21,7 +21,10 @@
 
 
 # ---------- frontend ----------
-FROM node:20-alpine AS frontend
+# Pinned to the build host's platform: the output is platform-independent
+# JS/CSS, and running `npm ci` under QEMU arm64 emulation was slow enough
+# to intermittently blow the 30-minute GHCR job timeout.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend
 
 WORKDIR /src/web/admin
 COPY web/admin/package.json web/admin/package-lock.json ./
@@ -31,7 +34,9 @@ RUN npm run build
 
 
 # ---------- builder ----------
-FROM golang:1.22-alpine AS builder
+# Also pinned to the build host: Go cross-compiles via GOOS/GOARCH below,
+# so the toolchain itself never needs to run emulated.
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
 
 # Module cache + build cache benefit from BuildKit cache mounts.
 WORKDIR /src
@@ -74,7 +79,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         ./cmd/synctuaryd
 
 # Sanity-check the binary actually executes (catches missing imports
-# / mistaken build constraints early).
+# / mistaken build constraints early). Only meaningful when target ==
+# build platform; a cross-compiled binary can't run here, hence || true.
 RUN /out/synctuaryd -h 2>/dev/null || true
 
 
