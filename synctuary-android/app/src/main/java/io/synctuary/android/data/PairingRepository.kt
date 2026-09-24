@@ -6,6 +6,7 @@ import io.synctuary.android.crypto.Bip39
 import io.synctuary.android.crypto.Bip39Exception
 import io.synctuary.android.crypto.Ed25519
 import io.synctuary.android.crypto.KeyDerivation
+import io.synctuary.android.data.api.CapturingTrustManager
 import io.synctuary.android.data.api.NetworkModule
 import io.synctuary.android.data.api.dto.RegisterRequest
 import io.synctuary.android.data.secret.SecretStore
@@ -91,15 +92,29 @@ class PairingRepository(
         platform: String,
         qrFingerprint: ByteArray? = null,
     ): PairedDeviceSummary {
-        // When the QR code includes the TLS fingerprint, use it for the
-        // initial /info call so we can trust the server's self-signed cert
-        // on first contact (TOFU via QR).
-        val unpinned = NetworkModule.create(serverUrl, qrFingerprint)
+        // First contact. PROTOCOL §4.1 step 2: server_fingerprint is the
+        // fingerprint of the certificate actually presented, not what /info
+        // claims. A QR code carries it out-of-band, so pin it from the first
+        // request. Otherwise (mnemonic entry) accept the server's
+        // self-signed cert once and record it — the recorded value is signed
+        // into the pair payload, which the server checks against its own
+        // cert, so an interceptor can't complete the pairing.
+        var capture: CapturingTrustManager? = null
+        val firstContact = when {
+            qrFingerprint != null -> NetworkModule.create(serverUrl, qrFingerprint)
+            serverUrl.startsWith("https://", ignoreCase = true) ->
+                NetworkModule.createFirstContact(serverUrl).let { (api, tm) ->
+                    capture = tm
+                    api
+                }
+            else -> NetworkModule.create(serverUrl) // dev-plaintext (§10.1)
+        }
         val info = try {
-            unpinned.info()
+            firstContact.info()
         } catch (e: Exception) {
             throw PairingException("server /info call failed: ${e.message}", e)
         }
+        val liveFingerprint = qrFingerprint ?: capture?.capturedFingerprint
         if (!isProtocolCompatible(info.protocol_version)) {
             throw PairingException(
                 "incompatible protocol_version: server=${info.protocol_version}, " +
@@ -112,7 +127,7 @@ class PairingRepository(
         } catch (e: IllegalArgumentException) {
             throw PairingException("malformed server_id: ${info.server_id}", e)
         }
-        val fingerprint: ByteArray? =
+        val advertisedFingerprint: ByteArray? =
             info.tls_fingerprint?.let { hex ->
                 hexDecode(hex).also {
                     if (it.size != KeyDerivation.FINGERPRINT_LEN) {
@@ -122,6 +137,7 @@ class PairingRepository(
                     }
                 }
             }
+        val fingerprint = resolveServerFingerprint(liveFingerprint, advertisedFingerprint)
 
         val pinned = NetworkModule.create(serverUrl, fingerprint)
 
@@ -221,6 +237,28 @@ class PairingRepository(
 /** Caller-friendly failure type. Wraps the underlying exception so
  *  callers can `cause` for diagnostics without re-throwing. */
 class PairingException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * Pick the server_fingerprint to sign into the pair payload and pin for
+ * every later request. [live] is what the TLS connection actually
+ * presented (null over dev-plaintext, where there is nothing to observe);
+ * [advertised] is /info.tls_fingerprint.
+ *
+ * Per PROTOCOL §4.1 the live certificate is authoritative and /info is
+ * only a cross-check. If both exist and disagree, something between us
+ * and the server re-terminated TLS (a proxy or an interceptor): fail
+ * loudly rather than pair against the wrong identity.
+ */
+internal fun resolveServerFingerprint(live: ByteArray?, advertised: ByteArray?): ByteArray? {
+    if (live == null) return advertised
+    if (advertised != null && !advertised.contentEquals(live)) {
+        throw PairingException(
+            "TLS certificate does not match the fingerprint the server reports in /info " +
+                "(a proxy or interception between this device and the server?)",
+        )
+    }
+    return live
+}
 
 // ── protocol_version compatibility (PROTOCOL §13) ───────────────────
 //

@@ -11,6 +11,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
+import javax.net.ssl.X509TrustManager
 
 /**
  * Builds [SynctuaryApi] instances bound to a single server URL with
@@ -46,22 +47,39 @@ object NetworkModule {
         baseUrl: String,
         fingerprint: ByteArray? = null,
         authInterceptor: AuthInterceptor? = null,
+    ): OkHttpClient = buildClient(
+        // Validate the server's leaf certificate by its SHA-256(DER)
+        // fingerprint. This enables self-signed certs (typical home LAN
+        // setup) without requiring the cert to be in the system trust store.
+        trustManager = fingerprint?.let { FingerprintTrustManager(it) },
+        authInterceptor = authInterceptor,
+    )
+
+    /**
+     * Client for the very first request of mnemonic pairing, when no
+     * fingerprint is known yet: accepts any certificate and records the
+     * one presented (PROTOCOL §4.1 step 2). See [CapturingTrustManager]
+     * for why this is safe for pairing and nothing else.
+     */
+    fun createFirstContact(baseUrl: String): Pair<SynctuaryApi, CapturingTrustManager> {
+        val capture = CapturingTrustManager()
+        return retrofitApi(baseUrl, buildClient(capture, null)) to capture
+    }
+
+    private fun buildClient(
+        trustManager: X509TrustManager?,
+        authInterceptor: AuthInterceptor?,
     ): OkHttpClient {
         return OkHttpClient.Builder().apply {
             connectTimeout(15, TimeUnit.SECONDS)
             readTimeout(60, TimeUnit.SECONDS)
             writeTimeout(5, TimeUnit.MINUTES)
 
-            if (fingerprint != null) {
-                // Use a custom TrustManager that validates the server's
-                // leaf certificate by its SHA-256(DER) fingerprint.
-                // This enables self-signed certs (typical home LAN setup)
-                // without requiring the cert to be in the system trust store.
-                val trustManager = FingerprintTrustManager(fingerprint)
+            if (trustManager != null) {
                 val sslContext = SSLContext.getInstance("TLS")
                 sslContext.init(null, arrayOf(trustManager), SecureRandom())
                 sslSocketFactory(sslContext.socketFactory, trustManager)
-                // The fingerprint check is sufficient — skip hostname
+                // The fingerprint is the identity check — skip hostname
                 // verification so IPv6 literal URLs and LAN IPs work
                 // without requiring matching SANs.
                 hostnameVerifier { _, _ -> true }
@@ -85,9 +103,11 @@ object NetworkModule {
         fingerprint: ByteArray? = null,
         authInterceptor: AuthInterceptor? = null,
     ): SynctuaryApi {
-        val rootUrl = baseUrl.trimEnd('/') + "/"
-        val client = createOkHttpClient(baseUrl, fingerprint, authInterceptor)
+        return retrofitApi(baseUrl, createOkHttpClient(baseUrl, fingerprint, authInterceptor))
+    }
 
+    private fun retrofitApi(baseUrl: String, client: OkHttpClient): SynctuaryApi {
+        val rootUrl = baseUrl.trimEnd('/') + "/"
         val moshi = Moshi.Builder().build()
         val retrofit = Retrofit.Builder()
             .baseUrl(rootUrl)
