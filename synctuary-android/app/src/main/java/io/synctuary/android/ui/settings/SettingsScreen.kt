@@ -65,10 +65,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
@@ -92,7 +96,9 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsState()
     var showUnpairDialog by remember { mutableStateOf(false) }
     var renamingProfileId by remember { mutableStateOf<String?>(null) }
-    var renameDraft by remember { mutableStateOf("") }
+    // TextFieldValue so the dialog opens with the whole name selected:
+    // typing replaces it instead of appending after a cursor at index 0.
+    var renameDraft by remember { mutableStateOf(TextFieldValue("")) }
     var editingHomeUrl by remember { mutableStateOf(false) }
     var editingRemoteIndex by remember { mutableStateOf(-1) }
     var homeUrlDraft by remember { mutableStateOf("") }
@@ -202,7 +208,10 @@ fun SettingsScreen(
                                 )
                             }
                             IconButton(onClick = {
-                                renameDraft = profile.label
+                                renameDraft = TextFieldValue(
+                                    profile.label,
+                                    selection = TextRange(0, profile.label.length),
+                                )
                                 renamingProfileId = profile.id
                             }) {
                                 Icon(
@@ -641,6 +650,8 @@ fun SettingsScreen(
     }
 
     renamingProfileId?.let { id ->
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(id) { focusRequester.requestFocus() }
         AlertDialog(
             onDismissRequest = { renamingProfileId = null },
             title = { Text(stringResource(R.string.settings_rename_server)) },
@@ -649,13 +660,15 @@ fun SettingsScreen(
                     value = renameDraft,
                     onValueChange = { renameDraft = it },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     // Blank resets to the default label (the home URL's host).
-                    viewModel.renameServer(id, renameDraft)
+                    viewModel.renameServer(id, renameDraft.text)
                     renamingProfileId = null
                 }) {
                     Text(stringResource(R.string.save))
