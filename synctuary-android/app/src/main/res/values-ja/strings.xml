@@ -203,4 +203,24 @@
     <string name="archive_root">アーカイブ</string>
     <string name="archive_folder">フォルダ</string>
     <string name="archive_back">戻る</string>
+
+    <!-- Multi-file upload -->
+    <string name="files_uploaded_batch">%1$d 件アップロードしました</string>
+    <string name="files_uploaded_batch_partial">%1$d 件成功、%2$d 件失敗</string>
+
+    <!-- Local folder roots -->
+    <string name="local_add_folder">フォルダを追加</string>
+    <string name="local_no_folders">フォルダが未追加です</string>
+    <string name="local_no_folders_hint">端末内のファイルを参照するにはフォルダを追加してください。追加数に制限はありません。</string>
+    <string name="local_remove_folder_title">フォルダを削除しますか？</string>
+    <string name="local_remove_folder_message">「%1$s」を一覧から外します。端末上のファイルは削除されません。</string>
+    <string name="local_remove_folder_confirm">削除</string>
+    <string name="local_all_files_hint">AndroidはDownloadフォルダとストレージ直下をフォルダ選択から除外しています。参照するには全ファイルへのアクセスを許可してください。</string>
+    <string name="local_grant_all_files">全ファイルへのアクセスを許可</string>
+    <string name="local_upload_to_server">サーバーにアップロード</string>
+    <string name="local_upload_folder_to_server">フォルダをサーバーにアップロード</string>
+
+    <!-- Upload menu -->
+    <string name="files_upload_files">ファイルをアップロード</string>
+    <string name="files_upload_folder">フォルダをアップロード</string>
 </resources>
