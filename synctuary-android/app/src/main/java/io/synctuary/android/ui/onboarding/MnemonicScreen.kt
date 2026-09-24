@@ -150,9 +150,6 @@ fun MnemonicScreen(
                         }
                         if (editingIndex < 23) {
                             editingIndex++
-                            inputText = state.words[editingIndex + 1].let {
-                                if (editingIndex + 1 <= 23) state.words[editingIndex] else ""
-                            }
                         }
                         inputText = ""
                     },

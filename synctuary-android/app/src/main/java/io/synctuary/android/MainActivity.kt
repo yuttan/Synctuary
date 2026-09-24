@@ -256,9 +256,15 @@ private fun SynctuaryNavHost() {
                 PairingProgressScreen(
                     viewModel = onboardingVm,
                     onPairingComplete = {
+                        // popUpTo(0): when adding a second server the flow was
+                        // entered from Settings, so ServerUrl isn't the root.
                         navController.navigate(NavRoute.TabFiles.route) {
-                            popUpTo(NavRoute.ServerUrl.route) { inclusive = true }
+                            popUpTo(0) { inclusive = true }
                         }
+                        // The new server is now active; a successful check
+                        // resets every tab onto it.
+                        settingsVm.refreshState()
+                        onboardingVm.checkConnection()
                     },
                 )
             }
@@ -275,6 +281,11 @@ private fun SynctuaryNavHost() {
                     onSelectRemote = { index -> onboardingVm.switchToRemote(index) },
                     onAddRemote = { url -> onboardingVm.addAndSwitchToRemote(url) },
                     onRetry = { onboardingVm.checkConnection() },
+                    serverLabel = onboardingVm.getProfiles()
+                        .find { it.id == onboardingVm.getActiveProfileId() }?.label,
+                    otherServers = onboardingVm.getProfiles()
+                        .filter { it.id != onboardingVm.getActiveProfileId() },
+                    onSelectServer = { id -> onboardingVm.switchServer(id) },
                 )
             }
 
@@ -339,10 +350,23 @@ private fun SynctuaryNavHost() {
                     .collectAsState()
                 SettingsScreen(
                     viewModel = settingsVm,
-                    onUnpaired = {
-                        navController.navigate(NavRoute.ServerUrl.route) {
-                            popUpTo(0) { inclusive = true }
+                    onUnpaired = { anyRemaining ->
+                        if (anyRemaining) {
+                            // Another server took over as active.
+                            onboardingVm.checkConnection()
+                        } else {
+                            navController.navigate(NavRoute.ServerUrl.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
                         }
+                    },
+                    onSwitchServer = { id ->
+                        settingsVm.switchServer(id)
+                        onboardingVm.checkConnection()
+                    },
+                    onAddServer = {
+                        onboardingVm.startAddServer()
+                        navController.navigate(NavRoute.ServerUrl.route)
                     },
                     onScanQr = {
                         navController.navigate(NavRoute.SettingsQrScanner.route)

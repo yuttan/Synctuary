@@ -20,7 +20,12 @@ class PhotoBackupWorker(
         val enabled = prefs.getBoolean(K_BACKUP_ENABLED, false)
         if (!enabled) return@withContext Result.success()
 
-        val secretStore = SecretStore.create(applicationContext)
+        // Upload to the server backup was enabled for, not whichever server
+        // the user happens to have active now. Pre-multi-server installs
+        // have no pinned profile and keep following the active one.
+        val secretStore = SecretStore.create(applicationContext).let { store ->
+            prefs.getString(K_BACKUP_PROFILE, null)?.let { store.forProfile(it) } ?: store
+        }
         if (!secretStore.isPaired()) return@withContext Result.success()
 
         val repo = FileRepository(secretStore)
@@ -93,5 +98,6 @@ class PhotoBackupWorker(
         const val K_BACKUP_ENABLED = "backup_enabled"
         const val K_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
         const val K_REMOTE_PATH = "backup_remote_path"
+        const val K_BACKUP_PROFILE = "backup_profile_id"
     }
 }

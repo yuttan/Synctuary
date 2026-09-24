@@ -96,13 +96,23 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
     // Paths are share-relative: the same "/movies/a.avi" can exist in two
     // shares, so the persistence key includes the share id. Archive entries
     // add the archive path so the same entry name in two archives is distinct.
+    // The server profile prefix keeps two paired servers apart (the null
+    // share maps to "default" on every server).
     private fun resumeKey(path: String) =
+        "${secretStore.activeProfileId() ?: ""}#${legacyResumeKey(path)}"
+
+    // Pre-multi-server key (<= 0.7.23). Read as a fallback so existing
+    // resume positions survive the upgrade; share ids are random per
+    // server, so a legacy hit is almost always the right server's.
+    private fun legacyResumeKey(path: String) =
         "${currentShareId ?: "default"}|${archivePath ?: ""}|$path"
 
     private fun loadResumePosition(path: String): Long {
         val key = resumeKey(path)
         resumePositions[key]?.let { return it }
         val v = resumePrefs.getLong(key, 0L)
+            .takeIf { it > 0L }
+            ?: resumePrefs.getLong(legacyResumeKey(path), 0L)
         if (v > 0L) resumePositions[key] = v
         return v
     }
@@ -119,8 +129,12 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun clearResumePosition(path: String) {
         val key = resumeKey(path)
+        val legacy = legacyResumeKey(path)
         resumePositions.remove(key)
-        resumePrefs.edit().remove(key).remove("$key#ts").apply()
+        resumePrefs.edit()
+            .remove(key).remove("$key#ts")
+            .remove(legacy).remove("$legacy#ts")
+            .apply()
     }
 
     private fun pruneResumePositions() {
@@ -570,15 +584,26 @@ class VideoPlayerViewModel(application: Application) : AndroidViewModel(applicat
         releasePlayer()
     }
 
-    private val authenticatedClient by lazy {
-        val paired = secretStore.loadPairedDevice()
-            ?: throw IllegalStateException("not paired")
-        io.synctuary.android.data.api.NetworkModule.createOkHttpClient(
-            paired.serverUrl,
-            paired.serverFingerprint,
-            io.synctuary.android.data.api.AuthInterceptor(secretStore),
-        )
-    }
+    private var cachedClientUrl: String? = null
+    private var cachedClient: okhttp3.OkHttpClient? = null
+
+    // Rebuilt whenever the active URL changes (Home <-> Remote, or a switch
+    // to another paired server): the client is pinned to one server's TLS
+    // fingerprint, so a stale one would fail every request after a switch.
+    private val authenticatedClient: okhttp3.OkHttpClient
+        get() {
+            val paired = secretStore.loadPairedDevice()
+                ?: throw IllegalStateException("not paired")
+            cachedClient?.let { if (cachedClientUrl == paired.serverUrl) return it }
+            return io.synctuary.android.data.api.NetworkModule.createOkHttpClient(
+                paired.serverUrl,
+                paired.serverFingerprint,
+                io.synctuary.android.data.api.AuthInterceptor(secretStore),
+            ).also {
+                cachedClient = it
+                cachedClientUrl = paired.serverUrl
+            }
+        }
 
     var currentShareId: String? = null
 
