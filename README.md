@@ -31,8 +31,8 @@ A self-hosted file synchronization server for the home LAN, with native clients.
 
 ## Design goals / 設計目標
 
-- **LAN-first, remote-capable** — no third-party cloud, no external accounts. Runs on your own hardware (NAS / home server / mini PC). Optional IPv6 direct or WireGuard tunnel for remote access.
-  LANファースト、リモート対応。サードパーティのクラウドや外部アカウント不要。自前のハードウェア上で動作。IPv6直接接続またはWireGuardトンネルによるリモートアクセスをオプション提供。
+- **LAN-first, remote-capable** — no third-party cloud holds your files, no external account is needed to run the server. Runs on your own hardware (NAS / home server / mini PC). For access from outside the LAN, pick whichever fits your network: Tailscale (recommended — traverses CGNAT and ISP port restrictions with no router configuration), IPv6 direct, or the built-in WireGuard tunnel. See [`docs/remote-access.md`](./docs/remote-access.md).
+  LANファースト、リモート対応。ファイルを預けるサードパーティのクラウドは不要で、サーバー運用に外部アカウントも要りません。自前のハードウェア上で動作。外部からのアクセスは、Tailscale（推奨 — ルーター設定なしでCGNATやISPのポート制限を越えられる）、IPv6直接接続、内蔵WireGuardトンネルから環境に合うものを選べます。詳細は [`docs/remote-access.md`](./docs/remote-access.md)。
 - **Strong cryptographic identity** — server identity is derived from a BIP-39 mnemonic; device pairing uses Ed25519 challenge-response over a 129-byte signed payload (PROTOCOL §4.1). QR one-tap pairing from admin UI.
   強力な暗号化アイデンティティ。BIP-39 ニーモニックからサーバーIDを導出。Ed25519チャレンジ・レスポンスによるデバイスペアリング（PROTOCOL §4.1）。管理UIからのQRワンタップペアリング対応。
 - **Resumable chunked uploads** — large files survive flaky Wi-Fi. Mobile-friendly 2 MiB default chunks, TTL refreshed on each chunk, download resume via Range headers (PROTOCOL §6.3).

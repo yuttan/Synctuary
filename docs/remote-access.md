@@ -1,22 +1,77 @@
 # Remote Access Guide
 
-Synctuary supports two remote-access modes for reaching your server from outside the local network. Both modes use the same application-layer protocol — the only difference is how the TCP connection is established.
+Synctuary can be reached from outside the local network in three ways. All of them carry the same application-layer protocol — they differ only in how the TCP connection gets established.
 
 ## Overview
 
-| | IPv6 Direct | WireGuard VPN |
-|---|---|---|
-| How it works | TLS connection to server's IPv6 GUA | Encrypted UDP tunnel to private subnet |
-| Requirements | IPv6 from ISP + router FW open | UDP port forward on router |
-| Works behind CGNAT? | No (needs global IPv6) | Yes |
-| Client setup | Just enter IPv6 URL | Import WireGuard config + enable tunnel |
-| TLS | Required | Inherited from server setting |
-| Latency | Minimal | Slight overhead (encap/decap) |
+| | Tailscale (recommended) | IPv6 Direct | WireGuard VPN |
+|---|---|---|---|
+| How it works | Managed WireGuard mesh; server gets a `100.x` tailnet address | TLS connection to server's IPv6 GUA | Self-hosted encrypted UDP tunnel |
+| Requirements | Tailscale on server + client | IPv6 from ISP + router FW open | UDP port forward on router |
+| Works behind CGNAT? | Yes | No (needs global IPv6) | Only if you can forward a port |
+| Router / ISP config | **None** | Firewall rule + IPv6 from ISP | UDP port forward |
+| Client setup | Install Tailscale, enter tailnet URL | Enter IPv6 URL | Import config + enable tunnel |
+| Synctuary config | **None** | `remote_access.mode: ipv6` | `remote_access.mode: wireguard` |
+| Third-party dependency | Tailscale account (free tier) | None | None |
 
 ## Choosing a Mode
 
-- **IPv6 Direct**: Simplest if you have IPv6. No extra software, no tunnel overhead. Most Japanese ISPs (NTT Flets/NGN, au Hikari, NURO) provide IPv6 GUA via IPoE or MAP-E.
-- **WireGuard VPN**: Works anywhere you can forward a UDP port. Better for IPv4-only or CGNAT environments.
+- **Tailscale** — the recommended default. It performs NAT traversal for you, so ISP port-blocking, CGNAT, and locked-down ONU/router firmware stop mattering. Synctuary needs no configuration at all: Tailscale gives the host another network interface and the app connects to it like any other address. The trade-off is a dependency on Tailscale's coordination service (a free personal account covers a home setup; [Headscale](https://github.com/juanfont/headscale) is an open-source drop-in if you want to self-host that part too).
+- **IPv6 Direct** — no third-party service, minimal latency, but requires a real IPv6 GUA and a router/firewall you can open. Most Japanese ISPs (NTT Flets/NGN, au Hikari, NURO) provide one via IPoE or MAP-E.
+- **WireGuard VPN** — fully self-hosted tunnel, built into the server (userspace, no kernel module). Needs a forwardable UDP port, so it does not help behind CGNAT.
+
+> **Licensing note**: the Tailscale client and its `tsnet` library are BSD-3-Clause, compatible with Synctuary's Apache-2.0. Synctuary does not bundle or redistribute any Tailscale code — you install it separately — so recommending it here carries no licensing obligation for either project.
+
+---
+
+## Mode T: Tailscale (recommended)
+
+Tailscale builds a private WireGuard mesh between your devices and handles NAT traversal, so nothing needs to be opened on the router and no port needs to be forwarded.
+
+### Server Setup
+
+1. Install Tailscale on the machine running Synctuary ([download](https://tailscale.com/download)) and sign in:
+
+```sh
+# Linux
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+
+# Windows: install the MSI, then sign in from the tray icon
+```
+
+2. Find the host's tailnet address:
+
+```sh
+tailscale ip -4        # e.g. 100.104.8.74
+```
+
+The admin UI reports the same thing without a terminal — `GET /admin/api/tailscale/status` returns the detected address and a ready-made URL:
+
+```json
+{
+  "available": true,
+  "ips": ["100.104.8.74"],
+  "urls": ["https://100.104.8.74:8443"],
+  "scheme": "https",
+  "tls_enabled": true
+}
+```
+
+3. Nothing else. Synctuary itself needs **no** configuration change: leave `remote_access.mode` at `disabled`, since Tailscale is providing the transport rather than the server.
+
+### Client Setup (Android)
+
+1. Install the Tailscale app and sign in with the same account, so the phone joins the same tailnet.
+2. In Synctuary, open **Settings → Add Remote URL** and enter the server's tailnet URL (`https://100.x.y.z:8443`). Scanning the QR code from the admin pairing page works too.
+3. Switch to that remote entry whenever you are away from home; switch back to Home on the LAN. Both entries coexist.
+
+### Notes
+
+- **TLS still applies.** The tailnet is already encrypted, but Synctuary keeps its own TLS and certificate pinning; the auto-generated certificate includes the host's LAN addresses, so a tailnet address may not be in its SANs. That is fine — the client pins the certificate fingerprint (§3.3) rather than validating the hostname.
+- **Firewall**: no inbound rule is needed on the router. A host firewall may still need to allow TCP 8443 on the Tailscale interface (`tailscale0` / "Tailscale").
+- **MagicDNS**: if enabled, `https://<machine-name>:8443` works instead of the numeric address.
+- Tailscale's free personal plan covers a typical home deployment; check their current plan limits if you are adding many devices.
 
 ---
 

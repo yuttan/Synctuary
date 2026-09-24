@@ -133,6 +133,7 @@ func (h *Handler) Register(r chi.Router) {
 				r.Get("/remote-access", h.RemoteAccessStatus)
 				r.Put("/remote-access", h.RemoteAccessUpdate)
 				r.Get("/ipv6/status", h.IPv6Status)
+				r.Get("/tailscale/status", h.TailscaleStatus)
 				r.Get("/ipv6/selected-guas", h.IPv6SelectedGUAsGet)
 				r.Put("/ipv6/selected-guas", h.IPv6SelectedGUAsUpdate)
 
@@ -800,6 +801,49 @@ func (h *Handler) IPv6Status(w http.ResponseWriter, r *http.Request) {
 		"tls_enabled":     h.tlsEnabled,
 		"scheme":          scheme,
 		"urls":            urls,
+	})
+}
+
+// TailscaleStatus reports whether the host has a tailnet address and,
+// if so, the URLs a client can pair against.
+//
+// Unlike the ipv6 / wireguard modes this needs no server-side config:
+// Tailscale runs as its own daemon and simply gives the host another
+// interface, so Synctuary only has to notice the address and hand the
+// operator a ready-made URL. It stays an admin (authenticated)
+// endpoint rather than part of /info so an unauthenticated LAN caller
+// cannot enumerate the tailnet address.
+func (h *Handler) TailscaleStatus(w http.ResponseWriter, r *http.Request) {
+	ips := netutil.DetectTailscaleIPs()
+
+	scheme := "http"
+	if h.tlsEnabled {
+		scheme = "https"
+	}
+	_, port, _ := net.SplitHostPort(h.listenAddr)
+	if port == "" {
+		port = "8443"
+	}
+
+	urls := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		host := ip
+		if strings.Contains(ip, ":") {
+			host = "[" + ip + "]"
+		}
+		u := scheme + "://" + host
+		if !netutil.IsDefaultPort(scheme, port) {
+			u += ":" + port
+		}
+		urls = append(urls, u)
+	}
+
+	writeAdminJSON(w, http.StatusOK, map[string]any{
+		"available":   len(ips) > 0,
+		"ips":         ips,
+		"urls":        urls,
+		"scheme":      scheme,
+		"tls_enabled": h.tlsEnabled,
 	})
 }
 
