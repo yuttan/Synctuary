@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Home
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
@@ -43,6 +45,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -79,13 +82,17 @@ import java.util.Locale
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onUnpaired: () -> Unit,
+    onUnpaired: (anyRemaining: Boolean) -> Unit,
+    onSwitchServer: (profileId: String) -> Unit = {},
+    onAddServer: () -> Unit = {},
     onScanQr: () -> Unit = {},
     scannedUrl: String? = null,
     onScannedUrlConsumed: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     var showUnpairDialog by remember { mutableStateOf(false) }
+    var renamingProfileId by remember { mutableStateOf<String?>(null) }
+    var renameDraft by remember { mutableStateOf("") }
     var editingHomeUrl by remember { mutableStateOf(false) }
     var editingRemoteIndex by remember { mutableStateOf(-1) }
     var homeUrlDraft by remember { mutableStateOf("") }
@@ -151,7 +158,74 @@ fun SettingsScreen(
                 }
             }
 
-            // Section 1: Connection
+            // Section: Servers (one profile per paired server)
+            item { SectionHeader(stringResource(R.string.settings_servers)) }
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                ) {
+                    for ((i, profile) in state.profiles.withIndex()) {
+                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        val isActive = profile.id == state.activeProfileId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !isActive) { onSwitchServer(profile.id) }
+                                .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = if (isActive) Icons.Filled.CheckCircle else Icons.Filled.Storage,
+                                contentDescription = null,
+                                tint = if (isActive) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = profile.label,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = profile.homeUrl,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            IconButton(onClick = {
+                                renameDraft = profile.label
+                                renamingProfileId = profile.id
+                            }) {
+                                Icon(
+                                    Icons.Filled.Edit,
+                                    contentDescription = stringResource(R.string.settings_rename_server),
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    TextButton(
+                        onClick = onAddServer,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.settings_add_server))
+                    }
+                }
+            }
+
+            // Section 1: Connection (URLs of the active server)
             item { SectionHeader(stringResource(R.string.settings_connection)) }
             item {
                 Card(
@@ -497,6 +571,16 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // Backup is pinned to one server; name it once there
+                        // is more than one to choose from.
+                        val backupServer = state.profiles.find { it.id == state.backupProfileId }
+                        if (state.backupEnabled && backupServer != null && state.profiles.size > 1) {
+                            Text(
+                                text = stringResource(R.string.settings_backup_server, backupServer.label),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -543,13 +627,42 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showUnpairDialog = false
-                    viewModel.unpair { onUnpaired() }
+                    viewModel.unpair { anyRemaining -> onUnpaired(anyRemaining) }
                 }) {
                     Text(stringResource(R.string.settings_unpair), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showUnpairDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    renamingProfileId?.let { id ->
+        AlertDialog(
+            onDismissRequest = { renamingProfileId = null },
+            title = { Text(stringResource(R.string.settings_rename_server)) },
+            text = {
+                OutlinedTextField(
+                    value = renameDraft,
+                    onValueChange = { renameDraft = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    // Blank resets to the default label (the home URL's host).
+                    viewModel.renameServer(id, renameDraft)
+                    renamingProfileId = null
+                }) {
+                    Text(stringResource(R.string.save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renamingProfileId = null }) {
                     Text(stringResource(R.string.cancel))
                 }
             },

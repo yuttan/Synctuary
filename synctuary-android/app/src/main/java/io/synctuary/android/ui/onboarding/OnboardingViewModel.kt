@@ -28,6 +28,22 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     fun getRemoteUrls() = secretStore.loadAllRemoteUrls()
     fun getActiveMode(): String = secretStore.getActiveMode()
 
+    fun getProfiles() = secretStore.listProfiles()
+    fun getActiveProfileId(): String? = secretStore.activeProfileId()
+
+    /** Switch to another paired server and re-check reachability; a
+     *  successful check resets every tab's ViewModel (see MainActivity). */
+    fun switchServer(profileId: String) {
+        secretStore.setActiveProfile(profileId)
+        checkConnection()
+    }
+
+    /** Clear leftover state from a previous pairing before running the
+     *  onboarding flow again to add another server. */
+    fun startAddServer() {
+        _uiState.value = OnboardingUiState()
+    }
+
     private val _connectionState = MutableStateFlow(ConnectionCheckState())
     val connectionState: StateFlow<ConnectionCheckState> = _connectionState.asStateFlow()
 

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.synctuary.android.data.secret.RemoteEntry
 import io.synctuary.android.data.secret.SecretStore
+import io.synctuary.android.data.secret.ServerProfile
 
 @Composable
 fun ConnectionPickerScreen(
@@ -55,6 +57,9 @@ fun ConnectionPickerScreen(
     onSelectRemote: (Int) -> Unit,
     onAddRemote: (String) -> Unit,
     onRetry: () -> Unit,
+    serverLabel: String? = null,
+    otherServers: List<ServerProfile> = emptyList(),
+    onSelectServer: (String) -> Unit = {},
 ) {
     var showAddRemote by remember { mutableStateOf(false) }
     var newRemoteUrl by remember { mutableStateOf("") }
@@ -77,7 +82,7 @@ fun ConnectionPickerScreen(
         Spacer(Modifier.height(16.dp))
 
         Text(
-            text = "Cannot reach server",
+            text = if (serverLabel != null) "Cannot reach $serverLabel" else "Cannot reach server",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -182,6 +187,27 @@ fun ConnectionPickerScreen(
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Add Remote URL")
+            }
+        }
+
+        // Other paired servers: the unreachable one may simply be offline,
+        // so let the user move on instead of being stuck on this screen.
+        if (otherServers.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Or switch server:",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            for (profile in otherServers) {
+                TextButton(
+                    onClick = { onSelectServer(profile.id) },
+                    enabled = !connecting,
+                ) {
+                    Icon(Icons.Filled.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(profile.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
 

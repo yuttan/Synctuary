@@ -148,6 +148,10 @@
     <!-- Settings: SettingsScreen -->
     <string name="settings_title">Settings</string>
     <string name="settings_connection">Connection</string>
+    <string name="settings_servers">Servers</string>
+    <string name="settings_add_server">Add server</string>
+    <string name="settings_rename_server">Rename server</string>
+    <string name="settings_backup_server">Backs up to: %s</string>
     <string name="settings_home">Home</string>
     <string name="settings_remote">Remote</string>
     <string name="settings_home_url">Home URL</string>
@@ -179,10 +183,10 @@
     <string name="settings_wifi_only">Wi-Fi only</string>
     <string name="settings_upload_to">Upload to: %s</string>
     <string name="settings_danger_zone">Danger zone</string>
-    <string name="settings_unpair">Unpair this device</string>
-    <string name="settings_unpair_desc">Unpairing deletes local device_token and revokes from server.</string>
-    <string name="settings_unpair_title">Unpair this device?</string>
-    <string name="settings_unpair_message">This will delete the local device_token and revoke access from the server. You will need to re-pair to use this app.</string>
+    <string name="settings_unpair">Unpair from this server</string>
+    <string name="settings_unpair_desc">Unpairing deletes the local device_token for the active server and revokes it there. Other paired servers are kept.</string>
+    <string name="settings_unpair_title">Unpair from this server?</string>
+    <string name="settings_unpair_message">This deletes the local device_token for the active server and revokes access on it. You will need to re-pair to use this server again; other paired servers are not affected.</string>
 
     <!-- Language -->
     <string name="settings_language">Language</string>

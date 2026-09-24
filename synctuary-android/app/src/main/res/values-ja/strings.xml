@@ -148,6 +148,10 @@
     <!-- Settings: SettingsScreen -->
     <string name="settings_title">設定</string>
     <string name="settings_connection">接続</string>
+    <string name="settings_servers">サーバー</string>
+    <string name="settings_add_server">サーバーを追加</string>
+    <string name="settings_rename_server">サーバー名を変更</string>
+    <string name="settings_backup_server">バックアップ先サーバー: %s</string>
     <string name="settings_home">ホーム</string>
     <string name="settings_remote">リモート</string>
     <string name="settings_home_url">ホームURL</string>
@@ -179,10 +183,10 @@
     <string name="settings_wifi_only">Wi-Fiのみ</string>
     <string name="settings_upload_to">アップロード先: %s</string>
     <string name="settings_danger_zone">危険な操作</string>
-    <string name="settings_unpair">このデバイスのペアリングを解除</string>
-    <string name="settings_unpair_desc">ペアリング解除はローカルのdevice_tokenを削除し、サーバーからのアクセスを取り消します。</string>
-    <string name="settings_unpair_title">ペアリングを解除しますか？</string>
-    <string name="settings_unpair_message">ローカルのdevice_tokenが削除され、サーバーからのアクセスが取り消されます。再度ペアリングが必要になります。</string>
+    <string name="settings_unpair">このサーバーとのペアリングを解除</string>
+    <string name="settings_unpair_desc">接続中のサーバーのdevice_tokenを削除し、そのサーバーでのアクセスを取り消します。他のサーバーのペアリングは残ります。</string>
+    <string name="settings_unpair_title">このサーバーとのペアリングを解除しますか？</string>
+    <string name="settings_unpair_message">接続中のサーバーのdevice_tokenが削除され、アクセスが取り消されます。このサーバーを再び使うにはペアリングが必要です。他のサーバーには影響しません。</string>
 
     <!-- Language -->
     <string name="settings_language">言語</string>

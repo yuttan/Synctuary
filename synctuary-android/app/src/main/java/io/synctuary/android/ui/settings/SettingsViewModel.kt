@@ -10,6 +10,7 @@ import io.synctuary.android.data.backup.BackupScheduler
 import io.synctuary.android.data.backup.PhotoBackupWorker
 import io.synctuary.android.data.secret.RemoteEntry
 import io.synctuary.android.data.secret.SecretStore
+import io.synctuary.android.data.secret.ServerProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +33,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val activeMode = secretStore.getActiveMode()
         val paired = secretStore.loadPairedDevice()
         return SettingsUiState(
+            profiles = secretStore.listProfiles(),
+            activeProfileId = secretStore.activeProfileId(),
             serverUrl = homeUrl,
             remoteUrls = remoteUrls,
             activeMode = activeMode,
@@ -46,6 +49,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             backupEnabled = backupPrefs.getBoolean(PhotoBackupWorker.K_BACKUP_ENABLED, false),
             backupWifiOnly = backupPrefs.getBoolean(K_BACKUP_WIFI_ONLY, true),
             backupRemotePath = backupPrefs.getString(PhotoBackupWorker.K_REMOTE_PATH, "/Camera Backup") ?: "/Camera Backup",
+            backupProfileId = backupPrefs.getString(PhotoBackupWorker.K_BACKUP_PROFILE, null),
         )
     }
 
@@ -130,6 +134,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         ) }
     }
 
+    /** Switch the active server. Per-server state (URLs, mode, device
+     *  info) is rebuilt; the device name / protocol version are
+     *  re-fetched for the new server. */
+    fun switchServer(profileId: String) {
+        if (profileId == secretStore.activeProfileId()) return
+        secretStore.setActiveProfile(profileId)
+        _uiState.value = buildState()
+        loadDeviceInfo()
+        loadServerInfo()
+    }
+
+    fun renameServer(profileId: String, label: String?) {
+        secretStore.renameProfile(profileId, label)
+        _uiState.update { it.copy(profiles = secretStore.listProfiles()) }
+    }
+
     fun setActiveMode(mode: String) {
         secretStore.setActiveMode(mode)
         _uiState.update { it.copy(activeMode = mode) }
@@ -154,8 +174,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setBackupEnabled(enabled: Boolean) {
-        backupPrefs.edit().putBoolean(PhotoBackupWorker.K_BACKUP_ENABLED, enabled).apply()
-        _uiState.update { it.copy(backupEnabled = enabled) }
+        // Backup is pinned to the server active when it was enabled, so
+        // switching servers later never redirects the camera roll to a
+        // different machine.
+        val profileId = if (enabled) secretStore.activeProfileId() else null
+        backupPrefs.edit()
+            .putBoolean(PhotoBackupWorker.K_BACKUP_ENABLED, enabled)
+            .putString(PhotoBackupWorker.K_BACKUP_PROFILE, profileId)
+            .apply()
+        _uiState.update { it.copy(backupEnabled = enabled, backupProfileId = profileId) }
         val app = getApplication<Application>()
         if (enabled) {
             BackupScheduler.schedule(app, _uiState.value.backupWifiOnly)
@@ -178,16 +205,26 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(backupRemotePath = trimmed) }
     }
 
-    fun unpair(onComplete: () -> Unit) {
+    /**
+     * Unpair from the active server only: revoke our device on it, then
+     * drop its profile. [onComplete] receives whether any other server is
+     * still paired (the app then switches to it instead of onboarding).
+     */
+    fun unpair(onComplete: (anyRemaining: Boolean) -> Unit) {
         viewModelScope.launch {
+            val removedId = secretStore.activeProfileId()
             try {
                 val paired = secretStore.loadPairedDevice()
                 if (paired != null) {
                     repo.revoke(B64Url.encode(paired.deviceId))
                 }
             } catch (_: Exception) { }
-            secretStore.wipe()
-            onComplete()
+            val anyRemaining = secretStore.removeProfile()
+            if (removedId != null && backupPrefs.getString(PhotoBackupWorker.K_BACKUP_PROFILE, null) == removedId) {
+                setBackupEnabled(false)
+            }
+            _uiState.value = buildState()
+            onComplete(anyRemaining)
         }
     }
 
@@ -206,6 +243,8 @@ private fun formatFingerprint(bytes: ByteArray): String {
 }
 
 data class SettingsUiState(
+    val profiles: List<ServerProfile> = emptyList(),
+    val activeProfileId: String? = null,
     val serverUrl: String = "",
     val remoteUrls: List<RemoteEntry> = emptyList(),
     val activeMode: String = "home",
@@ -222,5 +261,8 @@ data class SettingsUiState(
     val backupEnabled: Boolean = false,
     val backupWifiOnly: Boolean = true,
     val backupRemotePath: String = "/Camera Backup",
+    /** Profile the photo backup uploads to; null for installs that
+     *  enabled backup before multi-server support (follows active). */
+    val backupProfileId: String? = null,
     val error: String? = null,
 )
