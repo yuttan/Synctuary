@@ -88,7 +88,9 @@ fun ServerUrlScreen(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "v0.4 · PROTOCOL 0.2.3",
+                text = "v${io.synctuary.android.BuildConfig.VERSION_NAME} · " +
+                    "PROTOCOL ${io.synctuary.android.data.PROTOCOL_MAJOR}." +
+                    "${io.synctuary.android.data.PROTOCOL_MIN_MINOR}+",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
