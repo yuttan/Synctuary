@@ -324,6 +324,9 @@ private fun SynctuaryNavHost() {
                     onUploadFromLocal = { uri ->
                         fileBrowserVm.startUpload(uri)
                     },
+                    onUploadFolderFromLocal = { items ->
+                        fileBrowserVm.startUploadsWithPaths(items)
+                    },
                 )
             }
 

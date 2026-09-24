@@ -1,5 +1,6 @@
 package io.synctuary.android.ui.files
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -113,10 +114,20 @@ fun FileBrowserScreen(
     var detailsEntry by remember { mutableStateOf<FileEntry?>(null) }
     var saveAsEntry by remember { mutableStateOf<FileEntry?>(null) }
 
+    // OpenMultipleDocuments (not OpenDocument) so the system picker
+    // allows long-press multi-select.
     val uploadLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        uri?.let { viewModel.startUpload(it) }
+        contract = ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNotEmpty()) viewModel.startUploads(uris)
+    }
+
+    // Folder upload: the tree grant lets us walk the folder recursively
+    // and recreate its structure on the server.
+    val folderUploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        uri?.let { viewModel.startFolderUpload(it) }
     }
 
     val saveAsLauncher = rememberLauncherForActivityResult(
@@ -151,6 +162,15 @@ fun FileBrowserScreen(
             }
             is TransferState.Failed -> {
                 snackbarHostState.showSnackbar(context.getString(R.string.files_upload_failed, us.message))
+                viewModel.dismissTransferFeedback()
+            }
+            is TransferState.BatchDone -> {
+                val msg = if (us.failed == 0) {
+                    context.getString(R.string.files_uploaded_batch, us.succeeded)
+                } else {
+                    context.getString(R.string.files_uploaded_batch_partial, us.succeeded, us.failed)
+                }
+                snackbarHostState.showSnackbar(msg)
                 viewModel.dismissTransferFeedback()
             }
             else -> {}
@@ -249,12 +269,34 @@ fun FileBrowserScreen(
         },
         floatingActionButton = {
             if (!viewModel.isAtSharesRoot) {
-                FloatingActionButton(
-                    onClick = { uploadLauncher.launch(arrayOf("*/*")) },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.files_upload))
+                Box {
+                    var uploadMenuOpen by remember { mutableStateOf(false) }
+                    FloatingActionButton(
+                        onClick = { uploadMenuOpen = true },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.files_upload))
+                    }
+                    DropdownMenu(
+                        expanded = uploadMenuOpen,
+                        onDismissRequest = { uploadMenuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_upload_files)) },
+                            onClick = {
+                                uploadMenuOpen = false
+                                uploadLauncher.launch(arrayOf("*/*"))
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_upload_folder)) },
+                            onClick = {
+                                uploadMenuOpen = false
+                                folderUploadLauncher.launch(null)
+                            },
+                        )
+                    }
                 }
             }
         },
@@ -427,10 +469,17 @@ private fun TransferBanner(downloadState: TransferState, uploadState: TransferSt
         ?: (uploadState as? TransferState.Running)
         ?: return
 
-    val label = if (downloadState is TransferState.Running) {
+    val baseLabel = if (downloadState is TransferState.Running) {
         stringResource(R.string.files_downloading, running.fileName)
     } else {
         stringResource(R.string.files_uploading, running.fileName)
+    }
+    // Show the batch counter only for real batches, so single uploads
+    // and every download keep their existing one-line label.
+    val label = if (running.batchTotal > 1) {
+        "$baseLabel (${running.batchIndex}/${running.batchTotal})"
+    } else {
+        baseLabel
     }
     val fraction = running.progressFraction
 

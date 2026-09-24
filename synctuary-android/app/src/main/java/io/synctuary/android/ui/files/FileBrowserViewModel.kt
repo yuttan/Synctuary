@@ -13,13 +13,22 @@ import io.synctuary.android.data.api.dto.FileEntry
 import io.synctuary.android.data.api.dto.ShareEntry
 import io.synctuary.android.data.secret.SecretStore
 import io.synctuary.android.ui.settings.SettingsViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class SortOption { NAME, DATE, SIZE }
+
+/**
+ * One file queued for upload. [relativePath] is the destination path
+ * relative to the current server directory — a bare filename for a flat
+ * selection, or `Folder/Sub/file.jpg` when uploading a whole folder.
+ */
+data class UploadItem(val uri: Uri, val relativePath: String)
 
 /** Transient state for a server-side archive extraction (§6.11). */
 sealed interface ExtractState {
@@ -398,41 +407,165 @@ class FileBrowserViewModel @JvmOverloads constructor(
         }
     }
 
-    fun startUpload(uri: Uri) {
+    fun startUpload(uri: Uri) = startUploads(listOf(uri))
+
+    /**
+     * Upload a whole folder, preserving its structure under the current
+     * server directory: picking `Trip` while browsing `/photos` creates
+     * `/photos/Trip/...`.
+     *
+     * No new server API is needed — each file carries its own relative
+     * path and the server creates missing parents when finalizing.
+     */
+    fun startFolderUpload(treeUri: Uri) {
         if (_uiState.value.uploadState is TransferState.Running) return
-
-        val app = getApplication<Application>()
-        val fileName = resolveDisplayName(uri)
-        val remotePath = buildRemoteUploadPath(fileName)
-
-        val t0 = System.currentTimeMillis()
-        _uiState.update { it.copy(uploadState = TransferState.Running(fileName, 0L, null, startTimeMs = t0)) }
         viewModelScope.launch {
-            try {
-                repo.uploadFile(
-                    app.contentResolver, uri, remotePath,
-                    onProgress = { uploaded, total ->
-                        _uiState.update { s ->
-                            val prev = s.uploadState as? TransferState.Running
-                            s.copy(uploadState = TransferState.Running(
-                                fileName, uploaded, total,
-                                startTimeMs = prev?.startTimeMs ?: t0,
-                                startBytes = prev?.startBytes ?: 0L,
-                            ))
-                        }
-                    },
-                    shareId = _currentShare.value?.id,
-                )
-                _uiState.update {
-                    it.copy(uploadState = TransferState.Done(fileName, remotePath))
-                }
-                loadDirectory(_uiState.value.currentPath)
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(uploadState = TransferState.Failed(fileName, e.message ?: "Upload failed"))
+            val items = withContext(Dispatchers.IO) { collectTree(treeUri) }
+            if (items.isEmpty()) {
+                _uiState.update { it.copy(uploadState = TransferState.BatchDone(0, 0)) }
+                return@launch
+            }
+            runUploadBatch(items)
+        }
+    }
+
+    /**
+     * Upload pre-enumerated files that already know their destination
+     * paths (used by the Device tab, which enumerates in its own
+     * ViewModel because it may be walking raw files rather than a SAF
+     * tree).
+     */
+    fun startUploadsWithPaths(items: List<UploadItem>) {
+        if (items.isEmpty()) return
+        if (_uiState.value.uploadState is TransferState.Running) return
+        viewModelScope.launch { runUploadBatch(items) }
+    }
+
+    /**
+     * Walks a SAF tree depth-first, returning every file with the path it
+     * should take on the server (rooted at the picked folder's own name).
+     */
+    private fun collectTree(treeUri: Uri): List<UploadItem> {
+        val app = getApplication<Application>()
+        val root = DocumentFile.fromTreeUri(app, treeUri) ?: return emptyList()
+        val rootName = root.name ?: "folder"
+        val out = mutableListOf<UploadItem>()
+
+        fun walk(dir: DocumentFile, prefix: String) {
+            for (child in dir.listFiles()) {
+                val name = child.name ?: continue
+                val rel = "$prefix/$name"
+                if (child.isDirectory) {
+                    walk(child, rel)
+                } else {
+                    out.add(UploadItem(child.uri, rel))
                 }
             }
         }
+        walk(root, rootName)
+        return out
+    }
+
+    /**
+     * Upload [uris] one after another in a single coroutine.
+     *
+     * Sequential by design: the server enforces one active session per
+     * path and the progress banner shows a single transfer, so firing
+     * them concurrently would both fight the server and make progress
+     * meaningless. A failure does NOT abort the batch — every file is
+     * attempted and the outcome is summarized in [TransferState.BatchDone].
+     */
+    fun startUploads(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        if (_uiState.value.uploadState is TransferState.Running) return
+        viewModelScope.launch {
+            // Flat selection: each file keeps its own name, no structure.
+            runUploadBatch(uris.map { UploadItem(it, resolveDisplayName(it)) })
+        }
+    }
+
+    /**
+     * Runs [items] one after another. Sequential by design: the server
+     * enforces one active session per path and the progress banner shows
+     * a single transfer. A failure does NOT abort the batch — every item
+     * is attempted and the outcome is summarized.
+     */
+    private suspend fun runUploadBatch(items: List<UploadItem>) {
+        var succeeded = 0
+        var failed = 0
+        var lastName = ""
+        var lastPath = ""
+        var lastError = ""
+
+        items.forEachIndexed { index, item ->
+            val fileName = item.relativePath.substringAfterLast('/')
+            lastName = fileName
+            try {
+                lastPath = uploadOne(item, fileName, index + 1, items.size)
+                succeeded++
+            } catch (e: Exception) {
+                failed++
+                lastError = e.message ?: "Upload failed"
+            }
+        }
+
+        // One refresh for the whole batch rather than per file.
+        loadDirectory(_uiState.value.currentPath)
+
+        _uiState.update {
+            val terminal = when {
+                items.size > 1 -> TransferState.BatchDone(succeeded, failed)
+                failed > 0 -> TransferState.Failed(lastName, lastError)
+                else -> TransferState.Done(lastName, lastPath)
+            }
+            it.copy(uploadState = terminal)
+        }
+    }
+
+    /** Uploads a single file, publishing progress. Returns the remote path. */
+    private suspend fun uploadOne(
+        item: UploadItem,
+        fileName: String,
+        batchIndex: Int,
+        batchTotal: Int,
+    ): String {
+        val app = getApplication<Application>()
+        val uri = item.uri
+        val remotePath = buildRemoteUploadPath(item.relativePath)
+        val t0 = System.currentTimeMillis()
+
+        _uiState.update {
+            it.copy(
+                uploadState = TransferState.Running(
+                    fileName, 0L, null,
+                    startTimeMs = t0,
+                    batchIndex = batchIndex,
+                    batchTotal = batchTotal,
+                ),
+            )
+        }
+
+        repo.uploadFile(
+            app.contentResolver, uri, remotePath,
+            onProgress = { uploaded, total ->
+                _uiState.update { s ->
+                    val prev = s.uploadState as? TransferState.Running
+                    s.copy(
+                        uploadState = TransferState.Running(
+                            fileName, uploaded, total,
+                            // Keep the per-file start values so speed/ETA
+                            // stay accurate across progress callbacks.
+                            startTimeMs = prev?.startTimeMs ?: t0,
+                            startBytes = prev?.startBytes ?: 0L,
+                            batchIndex = batchIndex,
+                            batchTotal = batchTotal,
+                        ),
+                    )
+                }
+            },
+            shareId = _currentShare.value?.id,
+        )
+        return remotePath
     }
 
     fun dismissTransferFeedback() {
@@ -446,9 +579,14 @@ class FileBrowserViewModel @JvmOverloads constructor(
         return if (current == "/") "/$name" else "$current/$name"
     }
 
-    private fun buildRemoteUploadPath(fileName: String): String {
+    /**
+     * Destination path for an upload. [relativePath] is a bare filename
+     * for a flat selection, or `Folder/Sub/file.jpg` when a whole folder
+     * is being uploaded — the server creates missing parents.
+     */
+    private fun buildRemoteUploadPath(relativePath: String): String {
         val current = _uiState.value.currentPath
-        return if (current == "/") "/$fileName" else "$current/$fileName"
+        return if (current == "/") "/$relativePath" else "$current/$relativePath"
     }
 
     private fun resolveDisplayName(uri: Uri): String {
